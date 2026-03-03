@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { calculateEngagementScore } from "@/lib/engagement";
+import { createNotification } from "@/lib/notifications";
 
 // POST /api/comments — 댓글 작성
 export async function POST(req: NextRequest) {
@@ -46,6 +48,32 @@ export async function POST(req: NextRequest) {
     }),
   ]);
 
+  // Recalculate engagement score
+  const post = await prisma.post.findUnique({
+    where: { id: postId },
+    select: { likeCount: true, commentCount: true, createdAt: true, authorId: true },
+  });
+  if (post) {
+    const score = calculateEngagementScore(post.likeCount, post.commentCount, post.createdAt);
+    await prisma.post.update({ where: { id: postId }, data: { engagementScore: score } });
+
+    // Send notification
+    if (post.authorId) {
+      const user = await prisma.user.findUnique({
+        where: { id: session.user.id },
+        select: { nickname: true, name: true },
+      });
+      const actorName = user?.nickname ?? user?.name ?? "누군가";
+      await createNotification({
+        type: "comment",
+        content: `${actorName}님이 댓글을 남겼습니다: "${content.trim().slice(0, 30)}..."`,
+        userId: post.authorId,
+        actorId: session.user.id,
+        postId,
+      });
+    }
+  }
+
   return NextResponse.json(comment, { status: 201 });
 }
 
@@ -76,6 +104,16 @@ export async function DELETE(req: NextRequest) {
       data: { commentCount: { decrement: 1 } },
     }),
   ]);
+
+  // Recalculate engagement score
+  const post = await prisma.post.findUnique({
+    where: { id: comment.postId },
+    select: { likeCount: true, commentCount: true, createdAt: true },
+  });
+  if (post) {
+    const score = calculateEngagementScore(post.likeCount, post.commentCount, post.createdAt);
+    await prisma.post.update({ where: { id: comment.postId }, data: { engagementScore: score } });
+  }
 
   return NextResponse.json({ success: true });
 }

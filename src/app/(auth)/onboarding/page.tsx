@@ -41,7 +41,7 @@ export default function OnboardingPage() {
     }
 
     await update();
-    router.push("/feed");
+    window.location.href = "/feed";
   };
 
   return (

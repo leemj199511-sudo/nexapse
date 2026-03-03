@@ -5,17 +5,18 @@ import { PostCard } from "./post-card";
 import { useEffect, useRef, useCallback } from "react";
 import type { FeedResponse } from "@/types";
 
-export function FeedList() {
+export function FeedList({ sort = "recommended", following, hashtag }: { sort?: "recommended" | "latest"; following?: boolean; hashtag?: string }) {
   const observerRef = useRef<HTMLDivElement>(null);
 
   const { data, fetchNextPage, hasNextPage, isFetchingNextPage, isLoading } =
     useInfiniteQuery<FeedResponse>({
-      queryKey: ["feed"],
+      queryKey: ["feed", sort, following, hashtag],
       queryFn: async ({ pageParam }) => {
-        const url = pageParam
-          ? `/api/posts?cursor=${pageParam}`
-          : "/api/posts";
-        const res = await fetch(url);
+        const params = new URLSearchParams({ sort });
+        if (pageParam) params.set("cursor", pageParam as string);
+        if (following) params.set("following", "true");
+        if (hashtag) params.set("hashtag", hashtag);
+        const res = await fetch(`/api/posts?${params}`);
         if (!res.ok) throw new Error("Failed to fetch");
         return res.json();
       },

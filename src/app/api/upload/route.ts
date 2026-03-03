@@ -16,15 +16,17 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "No file provided" }, { status: 400 });
   }
 
-  // Validate file
-  const maxSize = 5 * 1024 * 1024; // 5MB
-  if (file.size > maxSize) {
-    return NextResponse.json({ error: "File too large (max 5MB)" }, { status: 400 });
+  // Validate file — 영상 업로드는 현재 비활성화
+  const imageTypes = ["image/jpeg", "image/png", "image/gif", "image/webp"];
+  const isImage = imageTypes.includes(file.type);
+
+  if (!isImage) {
+    return NextResponse.json({ error: "현재 이미지만 업로드할 수 있습니다. (jpg, png, gif, webp)" }, { status: 400 });
   }
 
-  const allowedTypes = ["image/jpeg", "image/png", "image/gif", "image/webp"];
-  if (!allowedTypes.includes(file.type)) {
-    return NextResponse.json({ error: "Invalid file type" }, { status: 400 });
+  const maxSize = 5 * 1024 * 1024; // 5MB
+  if (file.size > maxSize) {
+    return NextResponse.json({ error: "파일이 너무 큽니다. (최대 5MB)" }, { status: 400 });
   }
 
   const ext = file.name.split(".").pop() ?? "jpg";

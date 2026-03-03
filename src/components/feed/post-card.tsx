@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Avatar } from "@/components/ui/avatar";
@@ -9,10 +10,32 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Heart, MessageCircle, Trash2, Send } from "lucide-react";
 import { cn, formatRelativeTime, getAuthorInfo } from "@/lib/utils";
+import { isVideoUrl } from "@/lib/media-utils";
 import type { PostWithRelations } from "@/types";
+
+function renderContentWithHashtags(content: string) {
+  const parts = content.split(/(#[a-zA-Z0-9가-힣_]+)/g);
+  return parts.map((part, i) => {
+    if (part.startsWith("#") && part.length > 1) {
+      const tag = part.slice(1).toLowerCase();
+      return (
+        <Link
+          key={i}
+          href={`/feed?hashtag=${encodeURIComponent(tag)}`}
+          className="text-indigo-600 hover:text-indigo-800 font-medium"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {part}
+        </Link>
+      );
+    }
+    return part;
+  });
+}
 
 export function PostCard({ post }: { post: PostWithRelations }) {
   const { data: session } = useSession();
+  const router = useRouter();
   const queryClient = useQueryClient();
   const authorInfo = getAuthorInfo(post);
   const [showComments, setShowComments] = useState(false);
@@ -116,31 +139,47 @@ export function PostCard({ post }: { post: PostWithRelations }) {
       {/* Content */}
       <Link href={`/post/${post.id}`}>
         <p className="mt-3 text-sm text-gray-800 whitespace-pre-wrap leading-relaxed">
-          {post.content}
+          {renderContentWithHashtags(post.content)}
         </p>
       </Link>
 
-      {/* Images */}
+      {/* Media */}
       {post.images.length > 0 && (
         <div className={cn(
           "mt-3 gap-1 rounded-lg overflow-hidden",
           post.images.length === 1 ? "grid grid-cols-1" : "grid grid-cols-2"
         )}>
-          {post.images.map((img, i) => (
-            <img
-              key={i}
-              src={img}
-              alt=""
-              className="w-full h-48 object-cover"
-            />
-          ))}
+          {post.images.map((url, i) =>
+            isVideoUrl(url) ? (
+              <video
+                key={i}
+                src={url}
+                controls
+                preload="metadata"
+                className="w-full h-48 object-cover bg-black"
+              />
+            ) : (
+              <img
+                key={i}
+                src={url}
+                alt=""
+                className="w-full h-48 object-cover"
+              />
+            )
+          )}
         </div>
       )}
 
       {/* Actions */}
       <div className="flex items-center gap-6 mt-3 pt-3 border-t border-gray-100">
         <button
-          onClick={() => likeMutation.mutate()}
+          onClick={() => {
+            if (!session?.user) {
+              router.push("/login");
+              return;
+            }
+            likeMutation.mutate();
+          }}
           className={cn(
             "flex items-center gap-1.5 text-sm transition-colors",
             isLiked ? "text-red-500" : "text-gray-500 hover:text-red-500"

@@ -1,21 +1,7 @@
 import { auth } from "@/lib/auth";
 import { NextResponse } from "next/server";
 
-export default auth((req) => {
-  const { pathname } = req.nextUrl;
-
-  // If logged in but not onboarded, redirect to onboarding
-  // (except for onboarding page itself and APIs)
-  if (
-    req.auth?.user &&
-    !req.auth.user.onboarded &&
-    !pathname.startsWith("/onboarding") &&
-    !pathname.startsWith("/api/") &&
-    !pathname.startsWith("/login")
-  ) {
-    return NextResponse.redirect(new URL("/onboarding", req.url));
-  }
-
+export default auth(() => {
   return NextResponse.next();
 });
 

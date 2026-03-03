@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { calculateEngagementScore } from "@/lib/engagement";
+import { createNotification } from "@/lib/notifications";
 
 // POST /api/likes — 좋아요 토글
 export async function POST(req: NextRequest) {
@@ -27,7 +29,6 @@ export async function POST(req: NextRequest) {
         data: { likeCount: { decrement: 1 } },
       }),
     ]);
-    return NextResponse.json({ liked: false });
   } else {
     // Like
     await prisma.$transaction([
@@ -39,6 +40,46 @@ export async function POST(req: NextRequest) {
         data: { likeCount: { increment: 1 } },
       }),
     ]);
-    return NextResponse.json({ liked: true });
   }
+
+  // Recalculate engagement score
+  const updatedPost = await prisma.post.findUnique({
+    where: { id: postId },
+    select: { likeCount: true, commentCount: true, createdAt: true },
+  });
+  if (updatedPost) {
+    const score = calculateEngagementScore(
+      updatedPost.likeCount,
+      updatedPost.commentCount,
+      updatedPost.createdAt
+    );
+    await prisma.post.update({
+      where: { id: postId },
+      data: { engagementScore: score },
+    });
+  }
+
+  // Send notification on like (not unlike)
+  if (!existing) {
+    const post = await prisma.post.findUnique({
+      where: { id: postId },
+      select: { authorId: true, content: true },
+    });
+    if (post?.authorId) {
+      const user = await prisma.user.findUnique({
+        where: { id: session.user.id },
+        select: { nickname: true, name: true },
+      });
+      const actorName = user?.nickname ?? user?.name ?? "누군가";
+      await createNotification({
+        type: "like",
+        content: `${actorName}님이 회원님의 게시글을 좋아합니다.`,
+        userId: post.authorId,
+        actorId: session.user.id,
+        postId,
+      });
+    }
+  }
+
+  return NextResponse.json({ liked: !existing });
 }

@@ -9,8 +9,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { PostCard } from "@/components/feed/post-card";
-import { Edit2, Save, X } from "lucide-react";
-import type { PostWithRelations } from "@/types";
+import { Edit2, Save, X, Camera, MessageCircle } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { FollowButton } from "@/components/ui/follow-button";
+import type { PostWithRelations, FollowStatus } from "@/types";
 
 type UserProfile = {
   id: string;
@@ -27,17 +29,28 @@ export default function ProfilePage() {
   const userId = params.id as string;
   const { data: session } = useSession();
   const queryClient = useQueryClient();
+  const router = useRouter();
   const isOwn = session?.user?.id === userId;
   const [editing, setEditing] = useState(false);
   const [editNickname, setEditNickname] = useState("");
   const [editBio, setEditBio] = useState("");
   const [editError, setEditError] = useState("");
+  const [uploading, setUploading] = useState(false);
 
   const { data: profile, isLoading: profileLoading } = useQuery<UserProfile>({
     queryKey: ["profile", userId],
     queryFn: async () => {
       const res = await fetch(`/api/profile/${userId}`);
       if (!res.ok) throw new Error("Not found");
+      return res.json();
+    },
+  });
+
+  const { data: followData } = useQuery<FollowStatus>({
+    queryKey: ["follow-status", userId],
+    queryFn: async () => {
+      const res = await fetch(`/api/follow?userId=${userId}`);
+      if (!res.ok) throw new Error("Failed");
       return res.json();
     },
   });
@@ -73,6 +86,30 @@ export default function ProfilePage() {
       setEditError(err.message);
     },
   });
+
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const uploadRes = await fetch("/api/upload", { method: "POST", body: formData });
+      if (!uploadRes.ok) throw new Error("Upload failed");
+      const { url } = await uploadRes.json();
+      const patchRes = await fetch(`/api/profile/${userId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ image: url }),
+      });
+      if (!patchRes.ok) throw new Error("Update failed");
+      queryClient.invalidateQueries({ queryKey: ["profile", userId] });
+    } catch {
+      setEditError("이미지 업로드에 실패했습니다.");
+    } finally {
+      setUploading(false);
+    }
+  };
 
   const startEditing = () => {
     setEditNickname(profile?.nickname ?? "");
@@ -112,7 +149,21 @@ export default function ProfilePage() {
       {/* Profile header */}
       <div className="bg-white rounded-xl border border-gray-200 p-6 mb-4">
         <div className="flex items-start gap-4">
-          <Avatar src={profile.image} alt={displayName} size="lg" />
+          <div className="relative group">
+            <Avatar src={profile.image} alt={displayName} size="lg" />
+            {isOwn && (
+              <label className="absolute inset-0 flex items-center justify-center bg-black/40 rounded-full opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer">
+                <Camera size={20} className="text-white" />
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={handleImageUpload}
+                  disabled={uploading}
+                />
+              </label>
+            )}
+          </div>
           <div className="flex-1">
             {editing ? (
               <div className="space-y-3">
@@ -164,8 +215,29 @@ export default function ProfilePage() {
                 )}
                 <div className="flex gap-4 mt-3 text-sm text-gray-500">
                   <span>게시글 <strong className="text-gray-800">{profile._count.posts}</strong></span>
-                  <span>댓글 <strong className="text-gray-800">{profile._count.comments}</strong></span>
+                  <span>팔로워 <strong className="text-gray-800">{followData?.followersCount ?? 0}</strong></span>
+                  <span>팔로잉 <strong className="text-gray-800">{followData?.followingCount ?? 0}</strong></span>
                 </div>
+                {!isOwn && (
+                  <div className="mt-3 flex gap-2">
+                    <FollowButton targetUserId={userId} />
+                    <button
+                      onClick={async () => {
+                        const res = await fetch("/api/conversations", {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({ targetUserId: userId }),
+                        });
+                        const data = await res.json();
+                        if (data.conversationId) router.push(`/messages/${data.conversationId}`);
+                      }}
+                      className="inline-flex items-center gap-1.5 px-4 py-1.5 text-sm font-medium rounded-full bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors"
+                    >
+                      <MessageCircle size={16} />
+                      메시지
+                    </button>
+                  </div>
+                )}
               </>
             )}
           </div>

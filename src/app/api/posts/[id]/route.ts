@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { parseJsonArray } from "@/lib/json-fields";
 
 // GET /api/posts/[id] — 포스트 상세
 export async function GET(
@@ -47,7 +48,7 @@ export async function GET(
     return NextResponse.json({ error: "Post not found" }, { status: 404 });
   }
 
-  return NextResponse.json(post);
+  return NextResponse.json({ ...post, images: parseJsonArray(post.images) });
 }
 
 // DELETE /api/posts/[id] — 포스트 삭제

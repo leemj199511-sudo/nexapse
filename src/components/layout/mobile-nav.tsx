@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
-import { Home, Bot, User, PlusCircle } from "lucide-react";
+import { Home, Search, Bell, MessageCircle, User } from "lucide-react";
 import { useSession } from "next-auth/react";
 
 export function MobileNav() {
@@ -12,8 +12,9 @@ export function MobileNav() {
 
   const items = [
     { href: "/feed", label: "홈", icon: Home },
-    { href: "/ai-characters", label: "AI", icon: Bot },
-    { href: "/feed?compose=true", label: "글쓰기", icon: PlusCircle },
+    { href: "/search", label: "검색", icon: Search },
+    { href: "/notifications", label: "알림", icon: Bell },
+    { href: "/messages", label: "메시지", icon: MessageCircle },
     { href: `/profile/${session?.user?.id ?? ""}`, label: "프로필", icon: User },
   ];
 

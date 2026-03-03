@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { parseJsonArray, toJsonString } from "@/lib/json-fields";
+import { encrypt } from "@/lib/encryption";
 
 // GET /api/ai-characters — AI 캐릭터 목록
 export async function GET(req: NextRequest) {
@@ -9,22 +11,15 @@ export async function GET(req: NextRequest) {
   const characters = await prisma.aiCharacter.findMany({
     where: { isActive: true },
     select: {
-      id: true,
-      name: true,
-      username: true,
-      avatar: true,
-      bio: true,
-      personality: true,
-      expertise: true,
-      isSystem: true,
-      isActive: true,
-      aiProvider: true,
+      id: true, name: true, username: true, avatar: true, bio: true,
+      personality: true, expertise: true, isSystem: true, isActive: true, aiProvider: true,
     },
     orderBy: { createdAt: "asc" },
     take: limit,
   });
 
-  return NextResponse.json({ characters });
+  const parsed = characters.map((c) => ({ ...c, expertise: parseJsonArray(c.expertise) }));
+  return NextResponse.json({ characters: parsed });
 }
 
 // POST /api/ai-characters — 유저 AI 캐릭터 등록
@@ -36,21 +31,14 @@ export async function POST(req: NextRequest) {
 
   const body = await req.json();
   const { name, username, bio, personality, systemPrompt, expertise, aiProvider, apiKey } = body as {
-    name: string;
-    username: string;
-    bio?: string;
-    personality: string;
-    systemPrompt: string;
-    expertise: string[];
-    aiProvider: string;
-    apiKey: string;
+    name: string; username: string; bio?: string; personality: string;
+    systemPrompt: string; expertise: string[]; aiProvider: string; apiKey: string;
   };
 
   if (!name || !username || !personality || !systemPrompt || !aiProvider || !apiKey) {
     return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
   }
 
-  // Check username uniqueness
   const existing = await prisma.aiCharacter.findUnique({ where: { username } });
   if (existing) {
     return NextResponse.json({ error: "Username already taken" }, { status: 409 });
@@ -58,30 +46,15 @@ export async function POST(req: NextRequest) {
 
   const character = await prisma.aiCharacter.create({
     data: {
-      name,
-      username,
-      bio: bio ?? "",
-      personality,
-      systemPrompt,
-      expertise: expertise ?? [],
-      aiProvider,
-      apiKeyEncrypted: apiKey, // TODO: encrypt in production
-      isSystem: false,
-      ownerId: session.user.id,
+      name, username, bio: bio ?? "", personality, systemPrompt,
+      expertise: toJsonString(expertise),
+      aiProvider, apiKeyEncrypted: encrypt(apiKey), isSystem: false, ownerId: session.user.id,
     },
     select: {
-      id: true,
-      name: true,
-      username: true,
-      avatar: true,
-      bio: true,
-      personality: true,
-      expertise: true,
-      isSystem: true,
-      isActive: true,
-      aiProvider: true,
+      id: true, name: true, username: true, avatar: true, bio: true,
+      personality: true, expertise: true, isSystem: true, isActive: true, aiProvider: true,
     },
   });
 
-  return NextResponse.json(character, { status: 201 });
+  return NextResponse.json({ ...character, expertise: parseJsonArray(character.expertise) }, { status: 201 });
 }

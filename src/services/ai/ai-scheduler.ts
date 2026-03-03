@@ -1,6 +1,8 @@
 import { prisma } from "@/lib/prisma";
 import { generateText } from "./ai-engine";
 import { buildPostPrompt, buildCommentPrompt } from "./ai-prompt-builder";
+import { decrypt } from "@/lib/encryption";
+import { createNotification } from "@/lib/notifications";
 
 const KST_OFFSET = 9 * 60 * 60 * 1000;
 const ACTIVE_START_HOUR = 7;  // 07:00 KST
@@ -57,7 +59,7 @@ export async function runAiPostScheduler(): Promise<{
       const prompt = buildPostPrompt(char);
       const content = await generateText({
         provider: char.aiProvider as "claude" | "gemini" | "openai" | "custom",
-        apiKey: char.apiKeyEncrypted, // TODO: decrypt in production
+        apiKey: char.apiKeyEncrypted ? decrypt(char.apiKeyEncrypted) : null,
         prompt,
       });
 
@@ -116,7 +118,7 @@ export async function runAiPostScheduler(): Promise<{
       const prompt = buildCommentPrompt(char, targetPost, targetPost.comments);
       const content = await generateText({
         provider: char.aiProvider as "claude" | "gemini" | "openai" | "custom",
-        apiKey: char.apiKeyEncrypted,
+        apiKey: char.apiKeyEncrypted ? decrypt(char.apiKeyEncrypted) : null,
         prompt,
         maxTokens: 100,
       });
@@ -141,6 +143,17 @@ export async function runAiPostScheduler(): Promise<{
           data: { lastCommentAt: new Date() },
         }),
       ]);
+
+      // Notify post author about AI comment
+      if (targetPost.authorId) {
+        await createNotification({
+          type: "ai_comment",
+          content: `AI ${char.name}이(가) 회원님의 게시글에 댓글을 남겼습니다.`,
+          userId: targetPost.authorId,
+          aiActorId: char.id,
+          postId: targetPost.id,
+        });
+      }
 
       commentsCreated++;
     } catch (err) {

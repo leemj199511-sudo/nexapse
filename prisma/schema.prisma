@@ -16,12 +16,12 @@ model Account {
   type              String
   provider          String
   providerAccountId String
-  refresh_token     String? @db.Text
-  access_token      String? @db.Text
+  refresh_token     String?
+  access_token      String?
   expires_at        Int?
   token_type        String?
   scope             String?
-  id_token          String? @db.Text
+  id_token          String?
   session_state     String?
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -50,27 +50,27 @@ model VerificationToken {
 model User {
   id            String    @id @default(cuid())
   name          String?
-  nickname      String?   @db.VarChar(30)
+  nickname      String?
   email         String?   @unique
   emailVerified DateTime?
   image         String?
-  bio           String?   @db.Text
+  bio           String?
+  password      String?
   onboarded     Boolean   @default(false)
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
   accounts      Account[]
   sessions      Session[]
-
-  // Content
   posts         Post[]
   comments      Comment[]
   likes         Like[]
-
-  // User-registered AI characters
-  aiCharacters  AiCharacter[]
-
-  @@index([email])
+  aiCharacters    AiCharacter[]
+  following       Follow[]  @relation("Following")
+  followers       Follow[]  @relation("Followers")
+  notifications   Notification[]
+  conversations   ConversationParticipant[]
+  messages        Message[]
 }
 
 model AiCharacter {
@@ -78,103 +78,172 @@ model AiCharacter {
   name            String
   username        String   @unique
   avatar          String?
-  bio             String?  @db.Text
-  personality     String   @db.Text
-  systemPrompt    String   @db.Text
-  expertise       String[]
+  bio             String?
+  personality     String
+  systemPrompt    String
+  expertise       Json     @default("[]")
   postFrequency   Int      @default(3)
   commentRate     Float    @default(0.3)
   isSystem        Boolean  @default(false)
   isActive        Boolean  @default(true)
   lastPostAt      DateTime?
   lastCommentAt   DateTime?
-
-  // AI provider config
   aiProvider      String   @default("claude")
-  apiKeyEncrypted String?  @db.Text
-
-  // Owner (null = system AI)
+  apiKeyEncrypted String?
   ownerId         String?
   owner           User?    @relation(fields: [ownerId], references: [id], onDelete: SetNull)
-
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
-  // Content
   posts           Post[]
   comments        Comment[]
   likes           Like[]
-
-  @@index([isActive])
-  @@index([ownerId])
-  @@index([lastPostAt])
+  followers       Follow[]
+  conversations   ConversationParticipant[]
+  messages        Message[]
 }
 
 model Post {
   id              String   @id @default(cuid())
-  content         String   @db.Text
-  images          String[]
+  content         String
+  images          Json     @default("[]")
   isAiGenerated   Boolean  @default(false)
-
   authorId        String?
   author          User?    @relation(fields: [authorId], references: [id], onDelete: SetNull)
   aiCharacterId   String?
   aiCharacter     AiCharacter? @relation(fields: [aiCharacterId], references: [id], onDelete: SetNull)
-
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
-
   comments        Comment[]
   likes           Like[]
-
+  hashtags        PostHashtag[]
   likeCount       Int      @default(0)
   commentCount    Int      @default(0)
-
-  @@index([authorId])
-  @@index([aiCharacterId])
-  @@index([createdAt(sort: Desc)])
+  engagementScore Float    @default(0)
 }
 
 model Comment {
   id              String   @id @default(cuid())
-  content         String   @db.Text
+  content         String
   isAiGenerated   Boolean  @default(false)
-
   authorId        String?
   author          User?    @relation(fields: [authorId], references: [id], onDelete: SetNull)
   aiCharacterId   String?
   aiCharacter     AiCharacter? @relation(fields: [aiCharacterId], references: [id], onDelete: SetNull)
-
   postId          String
   post            Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
-
   parentId        String?
-  parent          Comment? @relation("CommentReplies", fields: [parentId], references: [id], onDelete: SetNull)
+  parent          Comment? @relation("CommentReplies", fields: [parentId], references: [id])
   replies         Comment[] @relation("CommentReplies")
-
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
+}
 
-  @@index([postId])
-  @@index([parentId])
-  @@index([authorId])
-  @@index([aiCharacterId])
+model Follow {
+  id          String   @id @default(cuid())
+  followerId  String
+  follower    User     @relation("Following", fields: [followerId], references: [id], onDelete: Cascade)
+
+  // 유저 또는 AI 캐릭터를 팔로우
+  followingId       String?
+  following         User?        @relation("Followers", fields: [followingId], references: [id], onDelete: Cascade)
+  followingAiId     String?
+  followingAi       AiCharacter? @relation(fields: [followingAiId], references: [id], onDelete: Cascade)
+
+  createdAt   DateTime @default(now())
+
+  @@unique([followerId, followingId])
+  @@unique([followerId, followingAiId])
 }
 
 model Like {
   id              String   @id @default(cuid())
-
   authorId        String?
   author          User?    @relation(fields: [authorId], references: [id], onDelete: SetNull)
   aiCharacterId   String?
   aiCharacter     AiCharacter? @relation(fields: [aiCharacterId], references: [id], onDelete: SetNull)
-
   postId          String
   post            Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
-
   createdAt       DateTime @default(now())
 
   @@unique([authorId, postId])
   @@unique([aiCharacterId, postId])
-  @@index([postId])
+}
+
+// ============ Hashtags ============
+
+model Hashtag {
+  id        String        @id @default(cuid())
+  name      String        @unique
+  postCount Int           @default(0)
+  posts     PostHashtag[]
+  createdAt DateTime      @default(now())
+}
+
+model PostHashtag {
+  id        String  @id @default(cuid())
+  postId    String
+  post      Post    @relation(fields: [postId], references: [id], onDelete: Cascade)
+  hashtagId String
+  hashtag   Hashtag @relation(fields: [hashtagId], references: [id], onDelete: Cascade)
+
+  @@unique([postId, hashtagId])
+}
+
+// ============ Notifications ============
+
+model Notification {
+  id        String   @id @default(cuid())
+  type      String   // "like" | "comment" | "follow" | "ai_comment" | "dm"
+  content   String
+  isRead    Boolean  @default(false)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  actorId   String?
+  aiActorId String?
+  postId    String?
+  createdAt DateTime @default(now())
+
+  @@index([userId, isRead])
+  @@index([userId, createdAt])
+}
+
+// ============ Conversations & Messages ============
+
+model Conversation {
+  id            String   @id @default(cuid())
+  lastMessageAt DateTime @default(now())
+  participants  ConversationParticipant[]
+  messages      Message[]
+  createdAt     DateTime @default(now())
+}
+
+model ConversationParticipant {
+  id             String       @id @default(cuid())
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  userId         String?
+  user           User?        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  aiCharacterId  String?
+  aiCharacter    AiCharacter? @relation(fields: [aiCharacterId], references: [id], onDelete: Cascade)
+  lastReadAt     DateTime?
+  createdAt      DateTime     @default(now())
+
+  @@unique([conversationId, userId])
+  @@unique([conversationId, aiCharacterId])
+}
+
+model Message {
+  id             String       @id @default(cuid())
+  content        String
+  isAiGenerated  Boolean      @default(false)
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  senderId       String?
+  sender         User?        @relation(fields: [senderId], references: [id], onDelete: SetNull)
+  aiSenderId     String?
+  aiSender       AiCharacter? @relation(fields: [aiSenderId], references: [id], onDelete: SetNull)
+  createdAt      DateTime     @default(now())
+
+  @@index([conversationId, createdAt])
 }

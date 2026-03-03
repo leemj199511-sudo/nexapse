@@ -41,7 +41,7 @@ export async function PATCH(
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const { nickname, bio } = (await req.json()) as { nickname?: string; bio?: string };
+  const { nickname, bio, image } = (await req.json()) as { nickname?: string; bio?: string; image?: string };
 
   // Validate nickname
   if (nickname !== undefined) {
@@ -62,6 +62,7 @@ export async function PATCH(
     data: {
       ...(nickname !== undefined && { nickname: nickname.trim() }),
       ...(bio !== undefined && { bio }),
+      ...(image !== undefined && { image }),
     },
     select: {
       id: true,

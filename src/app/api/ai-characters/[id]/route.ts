@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { parseJsonArray } from "@/lib/json-fields";
 
 // GET /api/ai-characters/[id]
 export async function GET(
@@ -28,5 +29,5 @@ export async function GET(
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
-  return NextResponse.json(character);
+  return NextResponse.json({ ...character, expertise: parseJsonArray(character.expertise) });
 }

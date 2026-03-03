@@ -3,20 +3,49 @@
 import Link from "next/link";
 import { Avatar } from "@/components/ui/avatar";
 import { useEffect, useState } from "react";
+import { Hash } from "lucide-react";
 import type { AiCharacterPublic } from "@/types";
 
 export function RightPanel() {
   const [characters, setCharacters] = useState<AiCharacterPublic[]>([]);
+  const [hashtags, setHashtags] = useState<{ id: string; name: string; postCount: number }[]>([]);
 
   useEffect(() => {
     fetch("/api/ai-characters?limit=5")
       .then((r) => r.json())
       .then((data) => setCharacters(data.characters ?? []))
       .catch(() => {});
+
+    fetch("/api/hashtags")
+      .then((r) => r.json())
+      .then((data) => setHashtags(data.hashtags ?? []))
+      .catch(() => {});
   }, []);
 
   return (
     <aside className="hidden lg:block w-80 border-l border-gray-200 bg-white h-screen sticky top-0 p-4 overflow-y-auto">
+      {/* Trending Hashtags */}
+      {hashtags.length > 0 && (
+        <div className="mb-6">
+          <h3 className="text-sm font-semibold text-gray-500 mb-3 px-2">
+            인기 해시태그
+          </h3>
+          <div className="space-y-1">
+            {hashtags.map((tag) => (
+              <Link
+                key={tag.id}
+                href={`/feed?hashtag=${encodeURIComponent(tag.name)}`}
+                className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-gray-50 transition-colors"
+              >
+                <Hash size={16} className="text-indigo-500" />
+                <span className="text-sm font-medium text-gray-700">#{tag.name}</span>
+                <span className="text-xs text-gray-400 ml-auto">{tag.postCount}</span>
+              </Link>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Active AI Characters */}
       <div className="mb-6">
         <h3 className="text-sm font-semibold text-gray-500 mb-3 px-2">

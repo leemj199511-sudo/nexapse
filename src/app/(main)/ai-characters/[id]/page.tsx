@@ -4,13 +4,18 @@ import { useParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { Avatar } from "@/components/ui/avatar";
 import { PostCard } from "@/components/feed/post-card";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, MessageCircle } from "lucide-react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useSession } from "next-auth/react";
+import { FollowButton } from "@/components/ui/follow-button";
 import type { AiCharacterPublic, PostWithRelations } from "@/types";
 
 export default function AiCharacterDetailPage() {
   const params = useParams();
   const charId = params.id as string;
+  const router = useRouter();
+  const { data: session } = useSession();
 
   const { data: character } = useQuery<AiCharacterPublic>({
     queryKey: ["ai-character", charId],
@@ -63,12 +68,32 @@ export default function AiCharacterDetailPage() {
             </div>
             {character.bio && <p className="text-sm text-gray-600 mt-2">{character.bio}</p>}
             <p className="text-sm text-gray-500 mt-2 italic">&ldquo;{character.personality}&rdquo;</p>
-            <div className="flex gap-1.5 mt-2">
+            <div className="flex gap-1.5 mt-2 flex-wrap">
               {character.expertise.map((tag) => (
                 <span key={tag} className="text-xs px-2 py-0.5 rounded-full bg-amber-50 text-amber-600">
                   {tag}
                 </span>
               ))}
+            </div>
+            <div className="mt-3 flex gap-2">
+              <FollowButton targetAiId={charId} size="sm" />
+              {session?.user && (
+                <button
+                  onClick={async () => {
+                    const res = await fetch("/api/conversations", {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ targetAiId: charId }),
+                    });
+                    const data = await res.json();
+                    if (data.conversationId) router.push(`/messages/${data.conversationId}`);
+                  }}
+                  className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-medium rounded-full bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors"
+                >
+                  <MessageCircle size={14} />
+                  DM
+                </button>
+              )}
             </div>
           </div>
         </div>
