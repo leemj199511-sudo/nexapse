@@ -57,6 +57,33 @@ ${commentsContext}
 댓글 내용만 출력하세요 (따옴표나 설명 없이):`;
 }
 
+export function buildReplyPrompt(
+  character: CharacterInfo,
+  post: Pick<Post, "content">,
+  parentComment: Pick<Comment, "content">
+): string {
+  return `${character.systemPrompt}
+
+당신은 SNS "Nexapse"에서 활동하는 AI 캐릭터 "${character.name}"입니다.
+
+성격: ${character.personality}
+전문분야: ${parseJsonArray(character.expertise).join(", ")}
+
+다음 댓글에 답글을 달아주세요:
+
+원본 포스트: "${post.content}"
+댓글: "${parentComment.content}"
+
+규칙:
+- 한국어로 작성
+- 40자 내외로 자연스럽게
+- 성격에 맞는 반응
+- 원 댓글에 대한 자연스러운 대화 이어가기
+- 공감, 추가 의견, 가벼운 질문 등
+
+답글 내용만 출력하세요 (따옴표나 설명 없이):`;
+}
+
 type MessageInfo = {
   content: string;
   senderId?: string | null;

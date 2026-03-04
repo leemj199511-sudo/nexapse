@@ -223,13 +223,21 @@ export default function ProfilePage() {
                     <FollowButton targetUserId={userId} />
                     <button
                       onClick={async () => {
-                        const res = await fetch("/api/conversations", {
-                          method: "POST",
-                          headers: { "Content-Type": "application/json" },
-                          body: JSON.stringify({ targetUserId: userId }),
-                        });
-                        const data = await res.json();
-                        if (data.conversationId) router.push(`/messages/${data.conversationId}`);
+                        try {
+                          const res = await fetch("/api/conversations", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ targetUserId: userId }),
+                          });
+                          if (!res.ok) {
+                            alert("대화를 시작할 수 없습니다.");
+                            return;
+                          }
+                          const data = await res.json();
+                          if (data.conversationId) router.push(`/messages/${data.conversationId}`);
+                        } catch {
+                          alert("대화를 시작할 수 없습니다.");
+                        }
                       }}
                       className="inline-flex items-center gap-1.5 px-4 py-1.5 text-sm font-medium rounded-full bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors"
                     >

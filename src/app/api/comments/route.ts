@@ -98,6 +98,11 @@ export async function DELETE(req: NextRequest) {
   }
 
   await prisma.$transaction([
+    // 자식 댓글의 parentId를 null로 설정
+    prisma.comment.updateMany({
+      where: { parentId: id },
+      data: { parentId: null },
+    }),
     prisma.comment.delete({ where: { id } }),
     prisma.post.update({
       where: { id: comment.postId },

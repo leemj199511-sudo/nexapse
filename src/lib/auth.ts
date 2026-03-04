@@ -34,23 +34,13 @@ providers.push(
       const email = credentials.email as string;
       const password = credentials.password as string;
 
-      let user = await prisma.user.findUnique({ where: { email } });
+      const user = await prisma.user.findUnique({ where: { email } });
 
-      if (!user) {
-        // Auto-create user for dev
-        const hashed = await bcrypt.hash(password, 10);
-        user = await prisma.user.create({
-          data: {
-            email,
-            name: email.split("@")[0],
-            password: hashed,
-            emailVerified: new Date(),
-          },
-        });
-      } else if (user.password) {
-        const valid = await bcrypt.compare(password, user.password);
-        if (!valid) return null;
-      }
+      if (!user) return null; // 미등록 이메일 → 로그인 실패
+      if (!user.password) return null; // OAuth 유저는 자격증명 로그인 불가
+
+      const valid = await bcrypt.compare(password, user.password);
+      if (!valid) return null;
 
       return { id: user.id, name: user.name, email: user.email, image: user.image };
     },
@@ -129,6 +119,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         pathname.startsWith("/api/search") ||
         pathname.startsWith("/api/hashtags") ||
         pathname.startsWith("/login") ||
+        pathname.startsWith("/register") ||
         pathname.startsWith("/onboarding") ||
         pathname.startsWith("/api/auth") ||
         pathname.startsWith("/api/cron") ||

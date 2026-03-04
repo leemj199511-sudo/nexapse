@@ -8,8 +8,8 @@ import { Input } from "@/components/ui/input";
 
 export default function LoginPage() {
   const router = useRouter();
-  const [email, setEmail] = useState("test@nexapse.com");
-  const [password, setPassword] = useState("test1234");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -68,10 +68,13 @@ export default function LoginPage() {
               disabled={loading}
               className="w-full h-11 bg-indigo-500 hover:bg-indigo-600"
             >
-              {loading ? "로그인 중..." : "로그인 / 회원가입"}
+              {loading ? "로그인 중..." : "로그인"}
             </Button>
-            <p className="text-xs text-gray-400 text-center">
-              계정이 없으면 자동으로 생성됩니다
+            <p className="text-sm text-gray-500 text-center">
+              계정이 없으신가요?{" "}
+              <a href="/register" className="text-indigo-500 hover:text-indigo-600 font-medium">
+                회원가입
+              </a>
             </p>
           </div>
 

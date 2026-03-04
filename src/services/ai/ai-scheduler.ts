@@ -1,14 +1,15 @@
 import { prisma } from "@/lib/prisma";
 import { generateText } from "./ai-engine";
-import { buildPostPrompt, buildCommentPrompt } from "./ai-prompt-builder";
+import { buildPostPrompt, buildCommentPrompt, buildReplyPrompt } from "./ai-prompt-builder";
 import { decrypt } from "@/lib/encryption";
 import { createNotification } from "@/lib/notifications";
 
 const KST_OFFSET = 9 * 60 * 60 * 1000;
 const ACTIVE_START_HOUR = 7;  // 07:00 KST
 const ACTIVE_END_HOUR = 24;   // 24:00 KST
-const MAX_POSTS_PER_RUN = 3;
-const MAX_COMMENTS_PER_RUN = 10;
+const MAX_POSTS_PER_RUN = 6;
+const MAX_COMMENTS_PER_RUN = 25;
+const MAX_REPLIES_PER_RUN = 5;
 
 function getKSTHour(): number {
   const now = new Date(Date.now() + KST_OFFSET);
@@ -32,16 +33,18 @@ function shouldPost(
 export async function runAiPostScheduler(): Promise<{
   postsCreated: number;
   commentsCreated: number;
+  repliesCreated: number;
   errors: string[];
 }> {
   const errors: string[] = [];
   let postsCreated = 0;
   let commentsCreated = 0;
+  let repliesCreated = 0;
 
   // Check active hours (KST)
   const hour = getKSTHour();
   if (hour < ACTIVE_START_HOUR || hour >= ACTIVE_END_HOUR) {
-    return { postsCreated, commentsCreated, errors: ["Outside active hours"] };
+    return { postsCreated, commentsCreated, repliesCreated, errors: ["Outside active hours"] };
   }
 
   // Get active AI characters
@@ -88,7 +91,7 @@ export async function runAiPostScheduler(): Promise<{
   // --- Phase 2: AI Comments on recent posts ---
   const recentPosts = await prisma.post.findMany({
     where: {
-      createdAt: { gte: new Date(Date.now() - 6 * 60 * 60 * 1000) }, // last 6h
+      createdAt: { gte: new Date(Date.now() - 12 * 60 * 60 * 1000) }, // last 12h
     },
     include: {
       comments: { select: { content: true, aiCharacterId: true } },
@@ -161,10 +164,70 @@ export async function runAiPostScheduler(): Promise<{
     }
   }
 
+  // --- Phase 2.5: AI Replies to existing comments ---
+  const recentComments = await prisma.comment.findMany({
+    where: {
+      createdAt: { gte: new Date(Date.now() - 12 * 60 * 60 * 1000) },
+      parentId: null, // top-level comments only
+      replies: { none: { isAiGenerated: true } }, // no AI reply yet
+    },
+    include: {
+      post: { select: { content: true } },
+    },
+    orderBy: { createdAt: "desc" },
+    take: 30,
+  });
+
+  for (const char of characters) {
+    if (repliesCreated >= MAX_REPLIES_PER_RUN) break;
+
+    // 30% chance to reply
+    if (Math.random() > 0.3) continue;
+
+    const eligibleComments = recentComments.filter(
+      (c) => c.aiCharacterId !== char.id // Don't reply to own comments
+    );
+    if (eligibleComments.length === 0) continue;
+
+    const targetComment = eligibleComments[Math.floor(Math.random() * eligibleComments.length)];
+
+    try {
+      const prompt = buildReplyPrompt(char, targetComment.post, targetComment);
+      const content = await generateText({
+        provider: char.aiProvider as "claude" | "gemini" | "openai" | "custom",
+        apiKey: char.apiKeyEncrypted ? decrypt(char.apiKeyEncrypted) : null,
+        prompt,
+        maxTokens: 80,
+      });
+
+      if (!content) continue;
+
+      await prisma.$transaction([
+        prisma.comment.create({
+          data: {
+            content,
+            postId: targetComment.postId,
+            parentId: targetComment.id,
+            aiCharacterId: char.id,
+            isAiGenerated: true,
+          },
+        }),
+        prisma.post.update({
+          where: { id: targetComment.postId },
+          data: { commentCount: { increment: 1 } },
+        }),
+      ]);
+
+      repliesCreated++;
+    } catch (err) {
+      errors.push(`Reply error (${char.name}): ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
   // --- Phase 3: AI Likes ---
   for (const char of characters) {
-    // 50% chance to like
-    if (Math.random() > 0.5) continue;
+    // 70% chance to like
+    if (Math.random() > 0.7) continue;
 
     const eligiblePosts = recentPosts.filter(
       (p) => p.aiCharacterId !== char.id
@@ -193,5 +256,5 @@ export async function runAiPostScheduler(): Promise<{
     }
   }
 
-  return { postsCreated, commentsCreated, errors };
+  return { postsCreated, commentsCreated, repliesCreated, errors };
 }

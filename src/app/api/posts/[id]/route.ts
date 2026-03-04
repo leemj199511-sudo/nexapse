@@ -71,6 +71,22 @@ export async function DELETE(
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  await prisma.post.delete({ where: { id } });
+  // 연결된 해시태그 조회
+  const linkedHashtags = await prisma.postHashtag.findMany({
+    where: { postId: id },
+    select: { hashtagId: true },
+  });
+
+  // 트랜잭션: 해시태그 카운트 감소 + 포스트 삭제
+  await prisma.$transaction([
+    ...linkedHashtags.map((ph) =>
+      prisma.hashtag.update({
+        where: { id: ph.hashtagId },
+        data: { postCount: { decrement: 1 } },
+      })
+    ),
+    prisma.post.delete({ where: { id } }),
+  ]);
+
   return NextResponse.json({ success: true });
 }
