@@ -16,13 +16,16 @@ import type { AiCharacter } from "@prisma/client";
 // ─── Constants ───────────────────────────────────────────
 const KST_OFFSET = 9 * 60 * 60 * 1000;
 
-// Per-run limits (micro mode — 30분마다 실행)
-const MICRO_MAX_POSTS = 2;
-const MICRO_MAX_COMMENTS = 8;
-const MICRO_MAX_REPLIES = 4;
-const MICRO_MAX_LIKES = 15;
-const MICRO_MAX_FOLLOWS = 3;
-const MICRO_MAX_TRENDING_COMMENTS = 3;
+// Per-run limits (micro mode — 30분마다 실행, Vercel 60초 제한 고려)
+const MICRO_MAX_POSTS = 1;
+const MICRO_MAX_COMMENTS = 3;
+const MICRO_MAX_REPLIES = 2;
+const MICRO_MAX_LIKES = 10;
+const MICRO_MAX_FOLLOWS = 2;
+const MICRO_MAX_TRENDING_COMMENTS = 1;
+
+// 시간 예산 (Vercel serverless 60초 제한, 15초 여유)
+const DEADLINE_MS = 45_000;
 
 // ─── Hourly Activity Weight (KST) ───────────────────────
 // 시간대별 AI 활동 가중치
@@ -135,6 +138,9 @@ export async function runMicroScheduler(): Promise<MicroSchedulerResult> {
   let followsCreated = 0;
   let trendingComments = 0;
 
+  const startTime = Date.now();
+  const hasTime = () => Date.now() - startTime < DEADLINE_MS;
+
   const hour = getKSTHour();
   const hourlyWeight = getHourlyWeight(hour);
 
@@ -166,7 +172,7 @@ export async function runMicroScheduler(): Promise<MicroSchedulerResult> {
 
   // ─── Phase 1: Posts ─────────────────────────────────
   for (const char of activeChars) {
-    if (postsCreated >= MICRO_MAX_POSTS) break;
+    if (postsCreated >= MICRO_MAX_POSTS || !hasTime()) break;
     if (!shouldPost(char.lastPostAt, char.postFrequency)) continue;
 
     // 시간대 확률 체크
@@ -213,6 +219,9 @@ export async function runMicroScheduler(): Promise<MicroSchedulerResult> {
   }
 
   // ─── Phase 2: Comments (포스트마다 개별 확률) ───────
+  if (!hasTime()) {
+    return { mode: "micro", hour, hourlyWeight, postsCreated, commentsCreated, repliesCreated, likesCreated, followsCreated, trendingComments, errors };
+  }
   const recentPosts = await prisma.post.findMany({
     where: {
       createdAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) },
@@ -226,7 +235,7 @@ export async function runMicroScheduler(): Promise<MicroSchedulerResult> {
   });
 
   for (const char of activeChars) {
-    if (commentsCreated >= MICRO_MAX_COMMENTS) break;
+    if (commentsCreated >= MICRO_MAX_COMMENTS || !hasTime()) break;
 
     const eligiblePosts = recentPosts.filter(
       (p) =>
@@ -235,7 +244,7 @@ export async function runMicroScheduler(): Promise<MicroSchedulerResult> {
     );
 
     for (const post of eligiblePosts) {
-      if (commentsCreated >= MICRO_MAX_COMMENTS) break;
+      if (commentsCreated >= MICRO_MAX_COMMENTS || !hasTime()) break;
 
       // 포스트마다 개별 확률 = commentRate × hourlyWeight
       const commentChance = char.commentRate * hourlyWeight;
@@ -305,6 +314,9 @@ export async function runMicroScheduler(): Promise<MicroSchedulerResult> {
   }
 
   // ─── Phase 2.5: Replies (50% + AI끼리 대화 60%) ────
+  if (!hasTime()) {
+    return { mode: "micro", hour, hourlyWeight, postsCreated, commentsCreated, repliesCreated, likesCreated, followsCreated, trendingComments, errors };
+  }
   const recentComments = await prisma.comment.findMany({
     where: {
       createdAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) },
@@ -326,7 +338,7 @@ export async function runMicroScheduler(): Promise<MicroSchedulerResult> {
   });
 
   for (const char of activeChars) {
-    if (repliesCreated >= MICRO_MAX_REPLIES) break;
+    if (repliesCreated >= MICRO_MAX_REPLIES || !hasTime()) break;
 
     // 자기 포스트에 달린 다른 AI 댓글에 답글 (60%)
     const aiCommentsOnMyPosts = recentComments.filter(
@@ -337,7 +349,7 @@ export async function runMicroScheduler(): Promise<MicroSchedulerResult> {
     );
 
     for (const comment of aiCommentsOnMyPosts) {
-      if (repliesCreated >= MICRO_MAX_REPLIES) break;
+      if (repliesCreated >= MICRO_MAX_REPLIES || !hasTime()) break;
       if (Math.random() > 0.6) continue;
 
       try {
@@ -382,13 +394,72 @@ export async function runMicroScheduler(): Promise<MicroSchedulerResult> {
       }
     }
 
+    // 내 포스트에 달린 유저 댓글에 답글 (80% — 유저 참여에 적극 응답)
+    const userCommentsOnMyPosts = recentComments.filter(
+      (c) =>
+        c.post.aiCharacterId === char.id && // 내 포스트에
+        !c.aiCharacterId && // AI가 아닌 유저가 단 댓글
+        c.authorId // 유저 확인
+    );
+
+    for (const comment of userCommentsOnMyPosts) {
+      if (repliesCreated >= MICRO_MAX_REPLIES || !hasTime()) break;
+      if (Math.random() > 0.8) continue;
+
+      try {
+        const prompt = buildReplyPrompt(char, comment.post, comment);
+        const content = await generateText({
+          ...getAiConfig(char),
+          prompt,
+          maxTokens: 80,
+        });
+
+        if (!content) continue;
+
+        await prisma.$transaction([
+          prisma.comment.create({
+            data: {
+              content,
+              postId: comment.postId,
+              parentId: comment.id,
+              aiCharacterId: char.id,
+              isAiGenerated: true,
+              createdAt: new Date(Date.now() + randomDelayMs()),
+            },
+          }),
+          prisma.post.update({
+            where: { id: comment.postId },
+            data: {
+              commentCount: { increment: 1 },
+              engagementScore: { increment: 1 },
+            },
+          }),
+        ]);
+
+        // 유저에게 답글 알림
+        if (comment.authorId) {
+          await createNotification({
+            type: "ai_comment",
+            content: `AI ${char.name}이(가) 회원님의 댓글에 답글을 남겼습니다.`,
+            userId: comment.authorId,
+            aiActorId: char.id,
+            postId: comment.postId,
+          });
+        }
+
+        repliesCreated++;
+      } catch (err) {
+        errors.push(`UserReply(${char.name}): ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+
     // 일반 답글 (50%)
     const eligibleComments = recentComments.filter(
       (c) => c.aiCharacterId !== char.id && c.post.aiCharacterId !== char.id
     );
 
     for (const comment of eligibleComments) {
-      if (repliesCreated >= MICRO_MAX_REPLIES) break;
+      if (repliesCreated >= MICRO_MAX_REPLIES || !hasTime()) break;
       if (Math.random() > 0.5) continue;
 
       try {
@@ -430,7 +501,7 @@ export async function runMicroScheduler(): Promise<MicroSchedulerResult> {
 
   // ─── Phase 3: Likes (85%, 캐릭터당 2~5개) ──────────
   for (const char of activeChars) {
-    if (likesCreated >= MICRO_MAX_LIKES) break;
+    if (likesCreated >= MICRO_MAX_LIKES || !hasTime()) break;
 
     const likeCount = 2 + Math.floor(Math.random() * 4); // 2~5개
     const eligiblePosts = recentPosts.filter((p) => p.aiCharacterId !== char.id);
@@ -467,6 +538,9 @@ export async function runMicroScheduler(): Promise<MicroSchedulerResult> {
   }
 
   // ─── Phase 4: Trending Response ────────────────────
+  if (!hasTime()) {
+    return { mode: "micro", hour, hourlyWeight, postsCreated, commentsCreated, repliesCreated, likesCreated, followsCreated, trendingComments, errors };
+  }
   const trendingPosts = await prisma.post.findMany({
     where: {
       createdAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) },
@@ -481,7 +555,7 @@ export async function runMicroScheduler(): Promise<MicroSchedulerResult> {
   });
 
   for (const post of trendingPosts) {
-    if (trendingComments >= MICRO_MAX_TRENDING_COMMENTS) break;
+    if (trendingComments >= MICRO_MAX_TRENDING_COMMENTS || !hasTime()) break;
 
     // 아직 댓글 안 단 AI 찾기
     const commentedAiIds = new Set(

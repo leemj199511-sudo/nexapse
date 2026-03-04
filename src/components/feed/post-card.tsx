@@ -127,6 +127,8 @@ export function PostCard({ post }: { post: PostWithRelations }) {
   const [commentText, setCommentText] = useState("");
   const [replyingTo, setReplyingTo] = useState<string | null>(null);
   const [replyingToName, setReplyingToName] = useState<string | null>(null);
+  const [allComments, setAllComments] = useState<CommentWithRelations[] | null>(null);
+  const [loadingComments, setLoadingComments] = useState(false);
 
   const isLiked = post.likes?.some((l) => l.authorId === session?.user?.id);
 
@@ -166,6 +168,8 @@ export function PostCard({ post }: { post: PostWithRelations }) {
       setCommentText("");
       setReplyingTo(null);
       setReplyingToName(null);
+      // 전체 댓글이 로드된 상태면 다시 갱신
+      if (allComments) loadAllComments();
       queryClient.invalidateQueries({ queryKey: ["feed"] });
       queryClient.invalidateQueries({ queryKey: ["post", post.id] });
     },
@@ -199,8 +203,21 @@ export function PostCard({ post }: { post: PostWithRelations }) {
     ? `/ai-characters/${post.aiCharacterId}`
     : `/profile/${post.authorId}`;
 
+  const loadAllComments = async () => {
+    setLoadingComments(true);
+    try {
+      const res = await fetch(`/api/posts/${post.id}`);
+      if (res.ok) {
+        const data = await res.json();
+        setAllComments(data.comments || []);
+      }
+    } catch { /* ignore */ }
+    setLoadingComments(false);
+  };
+
   // 댓글을 트리 구조로 변환
-  const commentTree = buildCommentTree(post.comments);
+  const displayComments = allComments ?? post.comments;
+  const commentTree = buildCommentTree(displayComments);
 
   return (
     <div className="bg-white rounded-xl border border-gray-200 p-4 mb-3">
@@ -282,9 +299,11 @@ export function PostCard({ post }: { post: PostWithRelations }) {
       )}
 
       {/* Actions */}
-      <div className="flex items-center gap-6 mt-3 pt-3 border-t border-gray-100">
+      <div className="flex items-center gap-6 mt-3 pt-3 border-t border-gray-100" onClick={(e) => e.stopPropagation()}>
         <button
-          onClick={() => {
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
             if (!session?.user) {
               router.push("/login");
               return;
@@ -300,7 +319,8 @@ export function PostCard({ post }: { post: PostWithRelations }) {
           <span>{post.likeCount}</span>
         </button>
         <button
-          onClick={() => setShowComments(!showComments)}
+          type="button"
+          onClick={(e) => { e.stopPropagation(); setShowComments(!showComments); }}
           className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-amber-500 transition-colors"
         >
           <MessageCircle size={18} />
@@ -310,7 +330,7 @@ export function PostCard({ post }: { post: PostWithRelations }) {
 
       {/* Comments */}
       {showComments && (
-        <div className="mt-3 pt-3 border-t border-gray-100">
+        <div className="mt-3 pt-3 border-t border-gray-100" onClick={(e) => e.stopPropagation()}>
           {/* 댓글 트리 */}
           <div className="space-y-2 mb-3">
             {commentTree.map((comment) => (
@@ -322,19 +342,21 @@ export function PostCard({ post }: { post: PostWithRelations }) {
                 replyingTo={replyingTo}
               />
             ))}
-            {post.commentCount > 3 && post.comments.length <= 3 && (
-              <Link
-                href={`/post/${post.id}`}
-                className="text-sm text-amber-600 hover:text-amber-700 ml-10"
+            {post.commentCount > 3 && !allComments && (
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); e.preventDefault(); loadAllComments(); }}
+                disabled={loadingComments}
+                className="text-sm text-amber-600 hover:text-amber-700 ml-10 disabled:opacity-50"
               >
-                댓글 {post.commentCount}개 모두 보기
-              </Link>
+                {loadingComments ? "불러오는 중..." : `댓글 ${post.commentCount}개 모두 보기`}
+              </button>
             )}
           </div>
 
           {/* 댓글 입력 */}
           {session?.user && (
-            <div>
+            <div onClick={(e) => e.stopPropagation()}>
               {/* 답글 대상 표시 */}
               {replyingTo && replyingToName && (
                 <div className="flex items-center gap-2 mb-2 text-xs text-amber-600 bg-amber-50 px-3 py-1.5 rounded-lg">
