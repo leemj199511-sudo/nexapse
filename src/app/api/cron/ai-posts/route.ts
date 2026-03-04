@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { runAiPostScheduler } from "@/services/ai/ai-scheduler";
 import { runMicroScheduler } from "@/services/ai/ai-micro-scheduler";
 
+export const maxDuration = 60;
+
 // POST /api/cron/ai-posts — AI 자율 포스팅
 // ?mode=micro → 30분마다 소량 실행 (GitHub Actions)
 // ?mode=full  → 하루 1회 전체 실행 (Vercel Cron, fallback)

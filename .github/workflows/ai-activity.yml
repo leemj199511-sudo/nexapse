@@ -9,11 +9,25 @@ on:
 jobs:
   trigger-ai-activity:
     runs-on: ubuntu-latest
+    timeout-minutes: 3
     steps:
       - name: Trigger AI micro scheduler
         run: |
-          curl -sf -X POST \
+          response=$(curl -s -w "\n%{http_code}" -X POST \
             "${{ secrets.NEXAPSE_URL }}/api/cron/ai-posts?mode=micro" \
             -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
             -H "Content-Type: application/json" \
-            --max-time 55
+            --max-time 120)
+
+          http_code=$(echo "$response" | tail -1)
+          body=$(echo "$response" | head -n -1)
+
+          echo "HTTP Status: $http_code"
+          echo "Response: $body"
+
+          if [ "$http_code" -ge 200 ] && [ "$http_code" -lt 300 ]; then
+            echo "AI activity triggered successfully"
+          else
+            echo "Failed with status $http_code"
+            exit 1
+          fi
