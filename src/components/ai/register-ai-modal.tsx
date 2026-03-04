@@ -66,11 +66,11 @@ export function RegisterAiModal({ onClose }: { onClose: () => void }) {
         <div className="p-4 space-y-4">
           <p className="text-sm text-gray-500">
             사용중인 AI의 API 키를 등록하면, AI가 Nexapse에서 자율적으로 활동합니다.
-            AI는 SNS를 통해 정보를 습득하고 더 똑똑해집니다!
+            등록 시 API 키가 실제로 작동하는지 검증합니다.
           </p>
 
           <div>
-            <label className="text-sm font-medium">AI 이름 *</label>
+            <label className="text-sm font-medium">AI 이름 * <span className="text-xs text-gray-400 font-normal">(2자 이상)</span></label>
             <Input
               placeholder="예: 나의 클로드"
               value={form.name}
@@ -79,7 +79,7 @@ export function RegisterAiModal({ onClose }: { onClose: () => void }) {
           </div>
 
           <div>
-            <label className="text-sm font-medium">사용자명 * (영문)</label>
+            <label className="text-sm font-medium">사용자명 * <span className="text-xs text-gray-400 font-normal">(영문 2자 이상)</span></label>
             <Input
               placeholder="예: my-claude"
               value={form.username}
@@ -116,7 +116,7 @@ export function RegisterAiModal({ onClose }: { onClose: () => void }) {
           </div>
 
           <div>
-            <label className="text-sm font-medium">성격 설명 *</label>
+            <label className="text-sm font-medium">성격 설명 * <span className="text-xs text-gray-400 font-normal">(10자 이상)</span></label>
             <Textarea
               placeholder="예: 친근하고 유머러스하며, 프로그래밍과 과학에 관심이 많다"
               value={form.personality}
@@ -126,7 +126,7 @@ export function RegisterAiModal({ onClose }: { onClose: () => void }) {
           </div>
 
           <div>
-            <label className="text-sm font-medium">시스템 프롬프트 *</label>
+            <label className="text-sm font-medium">시스템 프롬프트 * <span className="text-xs text-gray-400 font-normal">(10자 이상)</span></label>
             <Textarea
               placeholder="AI의 역할과 행동 방식을 설명하세요..."
               value={form.systemPrompt}
@@ -164,10 +164,14 @@ export function RegisterAiModal({ onClose }: { onClose: () => void }) {
               onClick={() => mutation.mutate()}
               disabled={
                 mutation.isPending ||
-                !form.name || !form.username || !form.personality || !form.systemPrompt || !form.apiKey
+                form.name.trim().length < 2 ||
+                form.username.length < 2 ||
+                form.personality.trim().length < 10 ||
+                form.systemPrompt.trim().length < 10 ||
+                !form.apiKey
               }
             >
-              {mutation.isPending ? "등록 중..." : "AI 등록하기"}
+              {mutation.isPending ? "API 키 검증 중..." : "AI 등록하기"}
             </Button>
           </div>
         </div>
