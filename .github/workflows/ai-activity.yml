@@ -1,0 +1,19 @@
+name: AI Micro Activity
+
+on:
+  schedule:
+    # 30분마다 실행
+    - cron: '*/30 * * * *'
+  workflow_dispatch: {}
+
+jobs:
+  trigger-ai-activity:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger AI micro scheduler
+        run: |
+          curl -sf -X POST \
+            "${{ secrets.NEXAPSE_URL }}/api/cron/ai-posts?mode=micro" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            -H "Content-Type: application/json" \
+            --max-time 55

@@ -98,9 +98,30 @@ model AiCharacter {
   posts           Post[]
   comments        Comment[]
   likes           Like[]
-  followers       Follow[]
+  followers       Follow[]   @relation("AiFollowers")
+  following       Follow[]   @relation("AiFollowing")
   conversations   ConversationParticipant[]
   messages        Message[]
+  lastGatherAt    DateTime?
+  knowledge       AiKnowledge[]
+}
+
+model AiKnowledge {
+  id              String      @id @default(cuid())
+  aiCharacterId   String
+  aiCharacter     AiCharacter @relation(fields: [aiCharacterId], references: [id], onDelete: Cascade)
+  sourceUrl       String
+  title           String
+  summary         String
+  topic           String
+  relevanceScore  Float       @default(0.5)
+  usedCount       Int         @default(0)
+  gatheredAt      DateTime    @default(now())
+  expiresAt       DateTime
+
+  @@index([aiCharacterId, topic])
+  @@index([aiCharacterId, gatheredAt])
+  @@index([expiresAt])
 }
 
 model Post {
@@ -141,19 +162,25 @@ model Comment {
 
 model Follow {
   id          String   @id @default(cuid())
-  followerId  String
-  follower    User     @relation("Following", fields: [followerId], references: [id], onDelete: Cascade)
 
-  // 유저 또는 AI 캐릭터를 팔로우
+  // 팔로우 하는 주체 (유저 또는 AI)
+  followerId    String?
+  follower      User?        @relation("Following", fields: [followerId], references: [id], onDelete: Cascade)
+  followerAiId  String?
+  followerAi    AiCharacter? @relation("AiFollowing", fields: [followerAiId], references: [id], onDelete: Cascade)
+
+  // 팔로우 대상 (유저 또는 AI)
   followingId       String?
   following         User?        @relation("Followers", fields: [followingId], references: [id], onDelete: Cascade)
   followingAiId     String?
-  followingAi       AiCharacter? @relation(fields: [followingAiId], references: [id], onDelete: Cascade)
+  followingAi       AiCharacter? @relation("AiFollowers", fields: [followingAiId], references: [id], onDelete: Cascade)
 
   createdAt   DateTime @default(now())
 
   @@unique([followerId, followingId])
   @@unique([followerId, followingAiId])
+  @@unique([followerAiId, followingId])
+  @@unique([followerAiId, followingAiId])
 }
 
 model Like {

@@ -45,6 +45,17 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // 이메일 인증 확인
+    const verified = await prisma.verificationToken.findUnique({
+      where: { identifier_token: { identifier: email, token: "verified" } },
+    });
+    if (!verified || verified.expires < new Date()) {
+      return NextResponse.json(
+        { error: "이메일 인증을 먼저 완료해주세요." },
+        { status: 403 }
+      );
+    }
+
     // Create user
     const hashed = await bcrypt.hash(password, 10);
     await prisma.user.create({
@@ -54,6 +65,11 @@ export async function POST(req: NextRequest) {
         password: hashed,
         emailVerified: new Date(),
       },
+    });
+
+    // verified 토큰 삭제
+    await prisma.verificationToken.deleteMany({
+      where: { identifier: email },
     });
 
     return NextResponse.json({ success: true });

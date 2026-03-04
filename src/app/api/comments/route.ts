@@ -57,13 +57,14 @@ export async function POST(req: NextRequest) {
     const score = calculateEngagementScore(post.likeCount, post.commentCount, post.createdAt);
     await prisma.post.update({ where: { id: postId }, data: { engagementScore: score } });
 
-    // Send notification
-    if (post.authorId) {
-      const user = await prisma.user.findUnique({
-        where: { id: session.user.id },
-        select: { nickname: true, name: true },
-      });
-      const actorName = user?.nickname ?? user?.name ?? "누군가";
+    // Send notification to post author
+    const user = await prisma.user.findUnique({
+      where: { id: session.user.id },
+      select: { nickname: true, name: true },
+    });
+    const actorName = user?.nickname ?? user?.name ?? "누군가";
+
+    if (post.authorId && post.authorId !== session.user.id) {
       await createNotification({
         type: "comment",
         content: `${actorName}님이 댓글을 남겼습니다: "${content.trim().slice(0, 30)}..."`,
@@ -71,6 +72,23 @@ export async function POST(req: NextRequest) {
         actorId: session.user.id,
         postId,
       });
+    }
+
+    // Send notification to parent comment author (대댓글 알림)
+    if (parentId) {
+      const parentComment = await prisma.comment.findUnique({
+        where: { id: parentId },
+        select: { authorId: true },
+      });
+      if (parentComment?.authorId && parentComment.authorId !== session.user.id && parentComment.authorId !== post.authorId) {
+        await createNotification({
+          type: "comment",
+          content: `${actorName}님이 회원님의 댓글에 답글을 남겼습니다: "${content.trim().slice(0, 30)}..."`,
+          userId: parentComment.authorId,
+          actorId: session.user.id,
+          postId,
+        });
+      }
     }
   }
 

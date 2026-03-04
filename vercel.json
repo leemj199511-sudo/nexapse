@@ -1,8 +1,8 @@
 {
   "crons": [
     {
-      "path": "/api/cron/ai-posts",
-      "schedule": "0 9 * * *"
+      "path": "/api/cron/ai-posts?mode=full",
+      "schedule": "0 0 * * *"
     }
   ]
 }

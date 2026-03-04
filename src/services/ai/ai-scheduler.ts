@@ -1,8 +1,10 @@
 import { prisma } from "@/lib/prisma";
 import { generateText } from "./ai-engine";
-import { buildPostPrompt, buildCommentPrompt, buildReplyPrompt } from "./ai-prompt-builder";
+import { buildPostPrompt, buildCommentPrompt, buildReplyPrompt, buildKnowledgeEnhancedPostPrompt } from "./ai-prompt-builder";
 import { decrypt } from "@/lib/encryption";
 import { createNotification } from "@/lib/notifications";
+import { gatherWebKnowledge } from "./ai-web-gatherer";
+import { getRelevantKnowledge, markKnowledgeUsed } from "./ai-knowledge-service";
 
 const KST_OFFSET = 9 * 60 * 60 * 1000;
 const ACTIVE_START_HOUR = 7;  // 07:00 KST
@@ -30,21 +32,25 @@ function shouldPost(
   return Date.now() >= nextPostAt;
 }
 
+const MAX_GATHER_PER_RUN = 3;
+
 export async function runAiPostScheduler(): Promise<{
   postsCreated: number;
   commentsCreated: number;
   repliesCreated: number;
+  knowledgeGathered: number;
   errors: string[];
 }> {
   const errors: string[] = [];
   let postsCreated = 0;
   let commentsCreated = 0;
   let repliesCreated = 0;
+  let knowledgeGathered = 0;
 
   // Check active hours (KST)
   const hour = getKSTHour();
   if (hour < ACTIVE_START_HOUR || hour >= ACTIVE_END_HOUR) {
-    return { postsCreated, commentsCreated, repliesCreated, errors: ["Outside active hours"] };
+    return { postsCreated, commentsCreated, repliesCreated, knowledgeGathered, errors: ["Outside active hours"] };
   }
 
   // Get active AI characters
@@ -52,19 +58,52 @@ export async function runAiPostScheduler(): Promise<{
     where: { isActive: true },
   });
 
-  // --- Phase 1: AI Posting ---
+  // --- Phase 0: Web Knowledge Gathering ---
+  if (process.env.BRAVE_SEARCH_API_KEY) {
+    let gatherCount = 0;
+    for (const char of characters) {
+      if (gatherCount >= MAX_GATHER_PER_RUN) break;
+      try {
+        const gathered = await gatherWebKnowledge(char);
+        if (gathered > 0) {
+          knowledgeGathered += gathered;
+          gatherCount++;
+        }
+      } catch (err) {
+        errors.push(`Gather error (${char.name}): ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+  }
+
+  // --- Phase 1: AI Posting (with knowledge-enhanced prompts) ---
   for (const char of characters) {
     if (postsCreated >= MAX_POSTS_PER_RUN) break;
 
     if (!shouldPost(char.lastPostAt, char.postFrequency)) continue;
 
     try {
-      const prompt = buildPostPrompt(char);
-      const content = await generateText({
-        provider: char.aiProvider as "claude" | "gemini" | "openai" | "custom",
-        apiKey: char.apiKeyEncrypted ? decrypt(char.apiKeyEncrypted) : null,
-        prompt,
-      });
+      let content: string;
+      let usedIds: string[] = [];
+
+      // 수집된 지식이 있으면 enhanced 프롬프트 사용
+      const knowledge = await getRelevantKnowledge(char.id, 3);
+      if (knowledge.length > 0) {
+        const { prompt, usedKnowledgeIds } = buildKnowledgeEnhancedPostPrompt(char, knowledge);
+        usedIds = usedKnowledgeIds;
+        content = await generateText({
+          provider: char.aiProvider as "claude" | "gemini" | "openai" | "custom",
+          apiKey: char.apiKeyEncrypted ? decrypt(char.apiKeyEncrypted) : null,
+          prompt,
+        }) || "";
+      } else {
+        // fallback: 기존 프롬프트
+        const prompt = buildPostPrompt(char);
+        content = await generateText({
+          provider: char.aiProvider as "claude" | "gemini" | "openai" | "custom",
+          apiKey: char.apiKeyEncrypted ? decrypt(char.apiKeyEncrypted) : null,
+          prompt,
+        }) || "";
+      }
 
       if (!content) continue;
 
@@ -81,6 +120,11 @@ export async function runAiPostScheduler(): Promise<{
           data: { lastPostAt: new Date() },
         }),
       ]);
+
+      // 사용된 지식 카운트 증가
+      if (usedIds.length > 0) {
+        await markKnowledgeUsed(usedIds);
+      }
 
       postsCreated++;
     } catch (err) {
@@ -256,5 +300,5 @@ export async function runAiPostScheduler(): Promise<{
     }
   }
 
-  return { postsCreated, commentsCreated, repliesCreated, errors };
+  return { postsCreated, commentsCreated, repliesCreated, knowledgeGathered, errors };
 }

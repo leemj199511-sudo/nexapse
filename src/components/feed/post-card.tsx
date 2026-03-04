@@ -8,10 +8,10 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Avatar } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Heart, MessageCircle, Trash2, Send } from "lucide-react";
+import { Heart, MessageCircle, Trash2, Send, Reply, CornerDownRight } from "lucide-react";
 import { cn, formatRelativeTime, getAuthorInfo } from "@/lib/utils";
 import { isVideoUrl } from "@/lib/media-utils";
-import type { PostWithRelations } from "@/types";
+import type { PostWithRelations, CommentWithRelations } from "@/types";
 
 function renderContentWithHashtags(content: string) {
   const parts = content.split(/(#[a-zA-Z0-9가-힣_]+)/g);
@@ -33,6 +33,91 @@ function renderContentWithHashtags(content: string) {
   });
 }
 
+// 댓글을 트리 구조로 변환 (parentId 기반)
+function buildCommentTree(comments: CommentWithRelations[]): CommentWithRelations[] {
+  const map = new Map<string, CommentWithRelations>();
+  const roots: CommentWithRelations[] = [];
+
+  // 모든 댓글에 replies 배열 초기화
+  for (const c of comments) {
+    map.set(c.id, { ...c, replies: [] });
+  }
+
+  for (const c of comments) {
+    const node = map.get(c.id)!;
+    if (c.parentId && map.has(c.parentId)) {
+      map.get(c.parentId)!.replies!.push(node);
+    } else {
+      roots.push(node);
+    }
+  }
+
+  return roots;
+}
+
+// 단일 댓글 컴포넌트
+function CommentItem({
+  comment,
+  depth,
+  onReply,
+  replyingTo,
+}: {
+  comment: CommentWithRelations;
+  depth: number;
+  onReply: (commentId: string, authorName: string) => void;
+  replyingTo: string | null;
+}) {
+  const cAuthor = getAuthorInfo(comment);
+  const hasReplies = comment.replies && comment.replies.length > 0;
+
+  return (
+    <div>
+      <div className={cn("flex gap-2", depth > 0 && "ml-8")}>
+        {depth > 0 && (
+          <CornerDownRight size={14} className="text-gray-300 mt-2 shrink-0" />
+        )}
+        <Avatar src={cAuthor.image} alt={cAuthor.name} size="sm" isAi={cAuthor.isAi} isSystem={cAuthor.isSystem} />
+        <div className={cn(
+          "flex-1 rounded-lg px-3 py-2",
+          replyingTo === comment.id ? "bg-amber-50 border border-amber-200" : "bg-gray-50"
+        )}>
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-semibold">{cAuthor.name}</span>
+            {cAuthor.isAi && (
+              <span className="text-[9px] px-1 py-0.5 rounded bg-amber-100 text-amber-600 font-medium">AI</span>
+            )}
+            <span className="text-[10px] text-gray-400">
+              {formatRelativeTime(new Date(comment.createdAt))}
+            </span>
+          </div>
+          <p className="text-sm text-gray-700 mt-0.5">{comment.content}</p>
+          <button
+            onClick={() => onReply(comment.id, cAuthor.name)}
+            className="text-[11px] text-gray-400 hover:text-amber-500 mt-1 flex items-center gap-1 transition-colors"
+          >
+            <Reply size={12} />
+            답글
+          </button>
+        </div>
+      </div>
+      {/* 대댓글 재귀 렌더링 */}
+      {hasReplies && (
+        <div className="space-y-2 mt-2">
+          {comment.replies!.map((reply) => (
+            <CommentItem
+              key={reply.id}
+              comment={reply}
+              depth={Math.min(depth + 1, 2)}
+              onReply={onReply}
+              replyingTo={replyingTo}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function PostCard({ post }: { post: PostWithRelations }) {
   const { data: session } = useSession();
   const router = useRouter();
@@ -40,6 +125,8 @@ export function PostCard({ post }: { post: PostWithRelations }) {
   const authorInfo = getAuthorInfo(post);
   const [showComments, setShowComments] = useState(false);
   const [commentText, setCommentText] = useState("");
+  const [replyingTo, setReplyingTo] = useState<string | null>(null);
+  const [replyingToName, setReplyingToName] = useState<string | null>(null);
 
   const isLiked = post.likes?.some((l) => l.authorId === session?.user?.id);
 
@@ -66,14 +153,21 @@ export function PostCard({ post }: { post: PostWithRelations }) {
       const res = await fetch("/api/comments", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ content: commentText, postId: post.id }),
+        body: JSON.stringify({
+          content: commentText,
+          postId: post.id,
+          parentId: replyingTo,
+        }),
       });
       if (!res.ok) throw new Error("Failed");
       return res.json();
     },
     onSuccess: () => {
       setCommentText("");
+      setReplyingTo(null);
+      setReplyingToName(null);
       queryClient.invalidateQueries({ queryKey: ["feed"] });
+      queryClient.invalidateQueries({ queryKey: ["post", post.id] });
     },
   });
 
@@ -87,9 +181,26 @@ export function PostCard({ post }: { post: PostWithRelations }) {
     },
   });
 
+  const handleReply = (commentId: string, authorName: string) => {
+    if (!session?.user) {
+      router.push("/login");
+      return;
+    }
+    setReplyingTo(commentId);
+    setReplyingToName(authorName);
+  };
+
+  const cancelReply = () => {
+    setReplyingTo(null);
+    setReplyingToName(null);
+  };
+
   const authorLink = post.aiCharacterId
     ? `/ai-characters/${post.aiCharacterId}`
     : `/profile/${post.authorId}`;
+
+  // 댓글을 트리 구조로 변환
+  const commentTree = buildCommentTree(post.comments);
 
   return (
     <div className="bg-white rounded-xl border border-gray-200 p-4 mb-3">
@@ -200,29 +311,18 @@ export function PostCard({ post }: { post: PostWithRelations }) {
       {/* Comments */}
       {showComments && (
         <div className="mt-3 pt-3 border-t border-gray-100">
-          {/* Existing comments */}
-          <div className="space-y-3 mb-3">
-            {post.comments.map((comment) => {
-              const cAuthor = getAuthorInfo(comment);
-              return (
-                <div key={comment.id} className="flex gap-2">
-                  <Avatar src={cAuthor.image} alt={cAuthor.name} size="sm" isAi={cAuthor.isAi} isSystem={cAuthor.isSystem} />
-                  <div className="flex-1 bg-gray-50 rounded-lg px-3 py-2">
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs font-semibold">{cAuthor.name}</span>
-                      {cAuthor.isAi && (
-                        <span className="text-[9px] px-1 py-0.5 rounded bg-amber-100 text-amber-600 font-medium">AI</span>
-                      )}
-                      <span className="text-[10px] text-gray-400">
-                        {formatRelativeTime(new Date(comment.createdAt))}
-                      </span>
-                    </div>
-                    <p className="text-sm text-gray-700 mt-0.5">{comment.content}</p>
-                  </div>
-                </div>
-              );
-            })}
-            {post.commentCount > 3 && (
+          {/* 댓글 트리 */}
+          <div className="space-y-2 mb-3">
+            {commentTree.map((comment) => (
+              <CommentItem
+                key={comment.id}
+                comment={comment}
+                depth={0}
+                onReply={handleReply}
+                replyingTo={replyingTo}
+              />
+            ))}
+            {post.commentCount > 3 && post.comments.length <= 3 && (
               <Link
                 href={`/post/${post.id}`}
                 className="text-sm text-amber-600 hover:text-amber-700 ml-10"
@@ -232,24 +332,36 @@ export function PostCard({ post }: { post: PostWithRelations }) {
             )}
           </div>
 
-          {/* Comment input */}
+          {/* 댓글 입력 */}
           {session?.user && (
-            <div className="flex gap-2 items-end">
-              <Textarea
-                placeholder="댓글을 입력하세요..."
-                value={commentText}
-                onChange={(e) => setCommentText(e.target.value)}
-                rows={1}
-                className="text-sm"
-              />
-              <Button
-                size="icon"
-                onClick={() => commentMutation.mutate()}
-                disabled={!commentText.trim() || commentMutation.isPending}
-                className="shrink-0"
-              >
-                <Send size={16} />
-              </Button>
+            <div>
+              {/* 답글 대상 표시 */}
+              {replyingTo && replyingToName && (
+                <div className="flex items-center gap-2 mb-2 text-xs text-amber-600 bg-amber-50 px-3 py-1.5 rounded-lg">
+                  <Reply size={12} />
+                  <span>{replyingToName}에게 답글 작성 중</span>
+                  <button onClick={cancelReply} className="ml-auto text-gray-400 hover:text-gray-600">
+                    ✕
+                  </button>
+                </div>
+              )}
+              <div className="flex gap-2 items-end">
+                <Textarea
+                  placeholder={replyingTo ? `${replyingToName}에게 답글...` : "댓글을 입력하세요..."}
+                  value={commentText}
+                  onChange={(e) => setCommentText(e.target.value)}
+                  rows={1}
+                  className="text-sm"
+                />
+                <Button
+                  size="icon"
+                  onClick={() => commentMutation.mutate()}
+                  disabled={!commentText.trim() || commentMutation.isPending}
+                  className="shrink-0"
+                >
+                  <Send size={16} />
+                </Button>
+              </div>
             </div>
           )}
         </div>

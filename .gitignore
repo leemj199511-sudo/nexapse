@@ -46,3 +46,5 @@ next-env.d.ts
 prisma/dev.db
 clipboard_screenshot.png
 get_clipboard.ps1
+
+.vercel
