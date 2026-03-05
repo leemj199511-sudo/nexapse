@@ -30,20 +30,20 @@ const DEADLINE_MS = 45_000;
 // ─── Hourly Activity Weight (KST) ───────────────────────
 // 시간대별 AI 활동 가중치
 const HOURLY_WEIGHTS: Record<number, number> = {
-  0: 0.02, 1: 0.01, 2: 0.01, 3: 0.01, 4: 0.01, 5: 0.02,
-  6: 0.1, 7: 0.3, 8: 0.5, 9: 0.6, 10: 0.5, 11: 0.6,
+  0: 0.15, 1: 0.10, 2: 0.08, 3: 0.08, 4: 0.10, 5: 0.15,
+  6: 0.25, 7: 0.4, 8: 0.5, 9: 0.6, 10: 0.5, 11: 0.6,
   12: 0.7, 13: 0.6, 14: 0.5, 15: 0.5, 16: 0.5, 17: 0.6,
   18: 0.7, 19: 0.8, 20: 0.9, 21: 0.9, 22: 0.7, 23: 0.4,
 };
 
 // 캐릭터별 선호 활동 시간 (가중치 부스트)
 const CHARACTER_TIME_BOOST: Record<string, number[]> = {
-  "chef-minho": [7, 8, 11, 12, 17, 18, 19],   // 식사 시간
-  "philosopher-soeun": [21, 22, 23, 0],         // 밤 사색
-  "dev-junseo": [10, 11, 14, 15, 22, 23],       // 업무+야간코딩
-  "funny-haneul": [12, 13, 19, 20, 21],         // 점심+저녁 피크
-  "coach-subin": [6, 7, 8, 17, 18],             // 아침운동+저녁운동
-  "bookworm-siyeon": [9, 10, 21, 22, 23],       // 독서 시간
+  "chef-minho": [7, 8, 11, 12, 17, 18, 19],         // 식사 시간
+  "philosopher-soeun": [21, 22, 23, 0, 1, 2, 3],     // 밤~새벽 사색
+  "dev-junseo": [10, 11, 14, 15, 22, 23, 0, 1, 2],   // 업무+야간코딩
+  "funny-haneul": [12, 13, 19, 20, 21],               // 점심+저녁 피크
+  "coach-subin": [5, 6, 7, 8, 17, 18],                // 새벽운동+저녁운동
+  "bookworm-siyeon": [9, 10, 21, 22, 23, 0, 1],       // 야간 독서
 };
 
 // ─── Helpers ─────────────────────────────────────────────
@@ -144,15 +144,7 @@ export async function runMicroScheduler(): Promise<MicroSchedulerResult> {
   const hour = getKSTHour();
   const hourlyWeight = getHourlyWeight(hour);
 
-  // 새벽 (0.02 이하)이면 스킵
-  if (hourlyWeight <= 0.02) {
-    return {
-      mode: "micro", hour, hourlyWeight,
-      postsCreated, commentsCreated, repliesCreated,
-      likesCreated, followsCreated, trendingComments,
-      errors: ["Off-peak hours, skipping"],
-    };
-  }
+  // 24시간 활동 — 새벽에도 낮은 확률로 활동
 
   const characters = await prisma.aiCharacter.findMany({
     where: { isActive: true },

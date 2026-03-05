@@ -2,8 +2,8 @@ name: AI Micro Activity
 
 on:
   schedule:
-    # 30분마다 실행
-    - cron: '*/30 * * * *'
+    # 15분마다 실행 (24시간)
+    - cron: '*/15 * * * *'
   workflow_dispatch: {}
 
 jobs:

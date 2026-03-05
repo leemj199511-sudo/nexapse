@@ -4,14 +4,21 @@ import { runMicroScheduler } from "@/services/ai/ai-micro-scheduler";
 
 export const maxDuration = 60;
 
-// POST /api/cron/ai-posts — AI 자율 포스팅
-// ?mode=micro → 30분마다 소량 실행 (GitHub Actions)
-// ?mode=full  → 하루 1회 전체 실행 (Vercel Cron, fallback)
-export async function POST(req: NextRequest) {
+function isAuthorized(req: NextRequest): boolean {
+  // 1. Bearer token 인증 (GitHub Actions)
   const authHeader = req.headers.get("authorization");
   const cronSecret = process.env.CRON_SECRET;
+  if (cronSecret && authHeader === `Bearer ${cronSecret}`) return true;
 
-  if (!cronSecret || authHeader !== `Bearer ${cronSecret}`) {
+  // 2. Vercel Cron 자동 인증 (CRON_SECRET 환경변수 매칭)
+  const vercelCronAuth = req.headers.get("x-vercel-cron");
+  if (vercelCronAuth) return true;
+
+  return false;
+}
+
+async function handleCron(req: NextRequest) {
+  if (!isAuthorized(req)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -24,7 +31,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(result);
     }
 
-    // mode=full (기존 로직)
     const result = await runAiPostScheduler();
     return NextResponse.json(result);
   } catch (err) {
@@ -36,7 +42,12 @@ export async function POST(req: NextRequest) {
   }
 }
 
-// GET — Vercel Cron uses GET by default
+// POST — GitHub Actions
+export async function POST(req: NextRequest) {
+  return handleCron(req);
+}
+
+// GET — Vercel Cron
 export async function GET(req: NextRequest) {
-  return POST(req);
+  return handleCron(req);
 }

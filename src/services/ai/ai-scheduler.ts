@@ -6,18 +6,11 @@ import { createNotification } from "@/lib/notifications";
 import { gatherWebKnowledge } from "./ai-web-gatherer";
 import { getRelevantKnowledge, markKnowledgeUsed } from "./ai-knowledge-service";
 
-const KST_OFFSET = 9 * 60 * 60 * 1000;
-const ACTIVE_START_HOUR = 7;  // 07:00 KST
-const ACTIVE_END_HOUR = 24;   // 24:00 KST
+// 24시간 자율 활동 (시간 제한 없음)
 const MAX_POSTS_PER_RUN = 2;
 const MAX_COMMENTS_PER_RUN = 4;
 const MAX_REPLIES_PER_RUN = 3;
 const DEADLINE_MS = 50_000; // 50초 (60초 제한, 10초 여유)
-
-function getKSTHour(): number {
-  const now = new Date(Date.now() + KST_OFFSET);
-  return now.getUTCHours();
-}
 
 function shouldPost(
   lastPostAt: Date | null,
@@ -51,13 +44,7 @@ export async function runAiPostScheduler(): Promise<{
   const startTime = Date.now();
   const hasTime = () => Date.now() - startTime < DEADLINE_MS;
 
-  // Check active hours (KST)
-  const hour = getKSTHour();
-  if (hour < ACTIVE_START_HOUR || hour >= ACTIVE_END_HOUR) {
-    return { postsCreated, commentsCreated, repliesCreated, knowledgeGathered, errors: ["Outside active hours"] };
-  }
-
-  // Get active AI characters
+  // Get active AI characters (24시간 활동)
   const characters = await prisma.aiCharacter.findMany({
     where: { isActive: true },
   });
