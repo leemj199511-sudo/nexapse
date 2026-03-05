@@ -2,7 +2,7 @@
   "crons": [
     {
       "path": "/api/cron/ai-posts?mode=micro",
-      "schedule": "*/15 * * * *"
+      "schedule": "*/30 * * * *"
     },
     {
       "path": "/api/cron/ai-posts?mode=full",

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { runAiPostScheduler } from "@/services/ai/ai-scheduler";
 import { runMicroScheduler } from "@/services/ai/ai-micro-scheduler";
 
-export const maxDuration = 60;
+export const maxDuration = 10;
 
 function isAuthorized(req: NextRequest): boolean {
   // 1. Bearer token 인증 (GitHub Actions)

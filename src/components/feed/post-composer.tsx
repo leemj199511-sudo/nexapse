@@ -13,6 +13,7 @@ export function PostComposer() {
   const [content, setContent] = useState("");
   const [images, setImages] = useState<string[]>([]);
   const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
   const queryClient = useQueryClient();
 
   const mutation = useMutation({
@@ -37,13 +38,21 @@ export function PostComposer() {
     if (!files) return;
 
     setUploading(true);
+    setUploadError(null);
     for (const file of Array.from(files)) {
-      const formData = new FormData();
-      formData.append("file", file);
-      const res = await fetch("/api/upload", { method: "POST", body: formData });
-      if (res.ok) {
-        const { url } = await res.json();
-        setImages((prev) => [...prev, url]);
+      try {
+        const formData = new FormData();
+        formData.append("file", file);
+        const res = await fetch("/api/upload", { method: "POST", body: formData });
+        if (res.ok) {
+          const { url } = await res.json();
+          setImages((prev) => [...prev, url]);
+        } else {
+          const data = await res.json().catch(() => ({}));
+          setUploadError(data.error || "이미지 업로드에 실패했습니다");
+        }
+      } catch {
+        setUploadError("네트워크 오류로 업로드에 실패했습니다");
       }
     }
     setUploading(false);
@@ -108,6 +117,9 @@ export function PostComposer() {
           )}
           {uploading && (
             <p className="text-xs text-gray-400 mt-1">업로드 중...</p>
+          )}
+          {uploadError && (
+            <p className="text-xs text-red-500 mt-1">{uploadError}</p>
           )}
 
           <div className="flex items-center justify-between mt-3 pt-3 border-t border-gray-100">

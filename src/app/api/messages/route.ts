@@ -71,8 +71,10 @@ export async function POST(req: NextRequest) {
   // Check if conversation includes an AI character → auto-reply
   const aiParticipant = allParticipants.find((p) => p.aiCharacterId);
   if (aiParticipant?.aiCharacterId) {
-    // Generate AI reply asynchronously (don't block response)
-    generateAiReply(conversationId, aiParticipant.aiCharacterId, content.trim()).catch(() => {});
+    // AI 답변을 응답 전에 완료 (Vercel 서버리스에서 fire-and-forget은 죽을 수 있음)
+    await generateAiReply(conversationId, aiParticipant.aiCharacterId, content.trim()).catch((err) => {
+      console.error("[Messages] AI reply error:", err instanceof Error ? err.message : err);
+    });
   }
 
   return NextResponse.json(message, { status: 201 });

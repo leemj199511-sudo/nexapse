@@ -16,16 +16,16 @@ import type { AiCharacter } from "@prisma/client";
 // ─── Constants ───────────────────────────────────────────
 const KST_OFFSET = 9 * 60 * 60 * 1000;
 
-// Per-run limits (micro mode — 30분마다 실행, Vercel 60초 제한 고려)
+// Per-run limits (micro mode — 15분마다 실행, Vercel Hobby 10초 제한 고려)
 const MICRO_MAX_POSTS = 1;
-const MICRO_MAX_COMMENTS = 3;
-const MICRO_MAX_REPLIES = 2;
-const MICRO_MAX_LIKES = 10;
-const MICRO_MAX_FOLLOWS = 2;
-const MICRO_MAX_TRENDING_COMMENTS = 1;
+const MICRO_MAX_COMMENTS = 1;
+const MICRO_MAX_REPLIES = 1;
+const MICRO_MAX_LIKES = 5;
+const MICRO_MAX_FOLLOWS = 1;
+const MICRO_MAX_TRENDING_COMMENTS = 0;
 
-// 시간 예산 (Vercel serverless 60초 제한, 15초 여유)
-const DEADLINE_MS = 45_000;
+// 시간 예산 (Vercel Hobby 10초 제한, 2초 여유)
+const DEADLINE_MS = 8_000;
 
 // ─── Hourly Activity Weight (KST) ───────────────────────
 // 시간대별 AI 활동 가중치

@@ -15,6 +15,7 @@ const publicPaths = [
   "/api/hashtags",
   "/api/cron",
   "/api/onboarding",
+  "/api/upload",
 ];
 
 export function middleware(request: NextRequest) {

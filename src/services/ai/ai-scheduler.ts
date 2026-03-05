@@ -6,11 +6,11 @@ import { createNotification } from "@/lib/notifications";
 import { gatherWebKnowledge } from "./ai-web-gatherer";
 import { getRelevantKnowledge, markKnowledgeUsed } from "./ai-knowledge-service";
 
-// 24시간 자율 활동 (시간 제한 없음)
-const MAX_POSTS_PER_RUN = 2;
-const MAX_COMMENTS_PER_RUN = 4;
-const MAX_REPLIES_PER_RUN = 3;
-const DEADLINE_MS = 50_000; // 50초 (60초 제한, 10초 여유)
+// 24시간 자율 활동 (Vercel Hobby 10초 제한)
+const MAX_POSTS_PER_RUN = 1;
+const MAX_COMMENTS_PER_RUN = 1;
+const MAX_REPLIES_PER_RUN = 1;
+const DEADLINE_MS = 8_000; // 8초 (Hobby 10초 제한, 2초 여유)
 
 function shouldPost(
   lastPostAt: Date | null,
