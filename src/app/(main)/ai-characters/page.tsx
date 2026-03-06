@@ -4,10 +4,16 @@ import { useQuery } from "@tanstack/react-query";
 import { Avatar } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
-import { Plus, Bot } from "lucide-react";
+import { Plus, Bot, Sparkles, MessageCircle } from "lucide-react";
 import { useState } from "react";
 import { RegisterAiModal } from "@/components/ai/register-ai-modal";
 import type { AiCharacterPublic } from "@/types";
+
+type FreeTrialUsage = {
+  used: number;
+  remaining: number;
+  limit: number;
+};
 
 export default function AiCharactersPage() {
   const [showRegister, setShowRegister] = useState(false);
@@ -16,6 +22,16 @@ export default function AiCharactersPage() {
     queryKey: ["ai-characters"],
     queryFn: async () => {
       const res = await fetch("/api/ai-characters");
+      if (!res.ok) throw new Error("Failed");
+      return res.json();
+    },
+  });
+
+  // Free trial usage
+  const { data: freeTrialData } = useQuery<FreeTrialUsage>({
+    queryKey: ["free-trial"],
+    queryFn: async () => {
+      const res = await fetch("/api/free-trial");
       if (!res.ok) throw new Error("Failed");
       return res.json();
     },
@@ -41,13 +57,44 @@ export default function AiCharactersPage() {
         </Button>
       </div>
 
-      {/* System AI */}
+      {/* Free trial banner */}
+      {freeTrialData && (
+        <div className="mb-6 bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200 rounded-xl p-4">
+          <div className="flex items-center gap-2 mb-1">
+            <Sparkles size={16} className="text-amber-500" />
+            <h3 className="text-sm font-semibold text-amber-800">무료 체험</h3>
+          </div>
+          <p className="text-xs text-amber-700">
+            API 키 없이도 시스템 AI 캐릭터들과 대화할 수 있습니다.
+            매일 <strong>{freeTrialData.limit}회</strong> 무료 메시지가 제공됩니다.
+          </p>
+          <div className="mt-2 flex items-center gap-2">
+            <div className="flex-1 bg-amber-200 rounded-full h-1.5">
+              <div
+                className="bg-amber-500 rounded-full h-1.5 transition-all"
+                style={{ width: `${(freeTrialData.remaining / freeTrialData.limit) * 100}%` }}
+              />
+            </div>
+            <span className={`text-xs font-medium ${freeTrialData.remaining <= 3 ? "text-red-500" : "text-amber-600"}`}>
+              {freeTrialData.remaining}/{freeTrialData.limit}
+            </span>
+          </div>
+        </div>
+      )}
+
+      {/* Showcase AI — featured demo characters */}
       {systemChars.length > 0 && (
         <div className="mb-8">
-          <h2 className="text-sm font-semibold text-gray-500 mb-3">시스템 AI</h2>
+          <div className="flex items-center gap-2 mb-3">
+            <MessageCircle size={16} className="text-amber-500" />
+            <h2 className="text-sm font-semibold text-gray-700">AI 쇼케이스 - 바로 대화해보세요</h2>
+          </div>
+          <p className="text-xs text-gray-400 mb-3">
+            시스템 AI 캐릭터들과 무료로 대화할 수 있습니다. DM 버튼을 눌러 바로 시작하세요!
+          </p>
           <div className="grid gap-3">
             {systemChars.map((char) => (
-              <CharacterCard key={char.id} character={char} />
+              <CharacterCard key={char.id} character={char} showFreeBadge />
             ))}
           </div>
         </div>
@@ -80,7 +127,7 @@ export default function AiCharactersPage() {
   );
 }
 
-function CharacterCard({ character }: { character: AiCharacterPublic }) {
+function CharacterCard({ character, showFreeBadge }: { character: AiCharacterPublic; showFreeBadge?: boolean }) {
   return (
     <Link
       href={`/ai-characters/${character.id}`}
@@ -94,12 +141,17 @@ function CharacterCard({ character }: { character: AiCharacterPublic }) {
         isSystem={character.isSystem}
       />
       <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <h3 className="font-semibold">{character.name}</h3>
           <span className="text-xs text-gray-400">@{character.username}</span>
           <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-500">
             {character.aiProvider}
           </span>
+          {showFreeBadge && (
+            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-green-100 text-green-700 font-medium flex items-center gap-0.5">
+              <Sparkles size={8} /> 무료 체험
+            </span>
+          )}
         </div>
         {character.bio && (
           <p className="text-sm text-gray-600 mt-0.5 line-clamp-1">{character.bio}</p>

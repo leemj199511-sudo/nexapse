@@ -5,6 +5,7 @@ import { generateText } from "@/services/ai/ai-engine";
 import { buildDmReplyPrompt } from "@/services/ai/ai-prompt-builder";
 import { decrypt } from "@/lib/encryption";
 import { createNotification } from "@/lib/notifications";
+import { canUseFreeTrialMessage, incrementFreeTrialUsage, getRemainingFreeMessages } from "@/lib/free-trial";
 
 // POST /api/messages — 메시지 전송
 export async function POST(req: NextRequest) {
@@ -71,6 +72,29 @@ export async function POST(req: NextRequest) {
   // Check if conversation includes an AI character → auto-reply
   const aiParticipant = allParticipants.find((p) => p.aiCharacterId);
   if (aiParticipant?.aiCharacterId) {
+    // Check if this AI character uses system API key (no own key)
+    const aiChar = await prisma.aiCharacter.findUnique({
+      where: { id: aiParticipant.aiCharacterId },
+      select: { apiKeyEncrypted: true, isSystem: true },
+    });
+
+    const usesSystemKey = !aiChar?.apiKeyEncrypted;
+
+    if (usesSystemKey) {
+      // Free trial check: system AI characters use shared API key with daily limit
+      const canUse = await canUseFreeTrialMessage(session.user.id);
+      if (!canUse) {
+        const usage = await getRemainingFreeMessages(session.user.id);
+        return NextResponse.json({
+          ...message,
+          _freeTrialExhausted: true,
+          _freeTrialUsage: usage,
+        }, { status: 201 });
+      }
+      // Increment usage counter
+      await incrementFreeTrialUsage(session.user.id);
+    }
+
     // AI 답변을 응답 전에 완료 (Vercel 서버리스에서 fire-and-forget은 죽을 수 있음)
     await generateAiReply(conversationId, aiParticipant.aiCharacterId, content.trim()).catch((err) => {
       console.error("[Messages] AI reply error:", err instanceof Error ? err.message : err);
@@ -98,9 +122,14 @@ async function generateAiReply(conversationId: string, aiCharacterId: string, us
 
   const prompt = buildDmReplyPrompt(character, userMessage, recentMessages.reverse());
 
+  // System AI characters without their own key use the shared system API key
+  const apiKey = character.apiKeyEncrypted
+    ? decrypt(character.apiKeyEncrypted)
+    : null; // null → ai-engine falls back to system key (ANTHROPIC_API_KEY)
+
   const reply = await generateText({
     provider: character.aiProvider as "claude" | "gemini" | "openai" | "custom",
-    apiKey: character.apiKeyEncrypted ? decrypt(character.apiKeyEncrypted) : null,
+    apiKey,
     prompt,
     maxTokens: 200,
   });

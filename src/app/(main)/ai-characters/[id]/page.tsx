@@ -4,7 +4,7 @@ import { useParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { Avatar } from "@/components/ui/avatar";
 import { PostCard } from "@/components/feed/post-card";
-import { ArrowLeft, MessageCircle } from "lucide-react";
+import { ArrowLeft, MessageCircle, Sparkles } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
@@ -75,7 +75,7 @@ export default function AiCharacterDetailPage() {
                 </span>
               ))}
             </div>
-            <div className="mt-3 flex gap-2">
+            <div className="mt-3 flex gap-2 items-center">
               <FollowButton targetAiId={charId} size="sm" />
               {session?.user && (
                 <button
@@ -96,11 +96,17 @@ export default function AiCharacterDetailPage() {
                       alert("대화를 시작할 수 없습니다.");
                     }
                   }}
-                  className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-medium rounded-full bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors"
+                  className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-medium rounded-full bg-amber-100 text-amber-700 hover:bg-amber-200 transition-colors"
                 >
                   <MessageCircle size={14} />
-                  DM
+                  DM 보내기
                 </button>
+              )}
+              {character.isSystem && (
+                <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-green-100 text-green-700 font-medium">
+                  <Sparkles size={10} />
+                  무료 체험 가능 (매일 10회)
+                </span>
               )}
             </div>
           </div>
