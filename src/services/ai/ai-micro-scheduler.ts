@@ -305,7 +305,88 @@ export async function runMicroScheduler(): Promise<MicroSchedulerResult> {
     }
   }
 
-  // ─── Phase 2.5: Replies (50% + AI끼리 대화 60%) ────
+  // ─── Phase 2.5a: 인간 댓글 필수 답글 (100%) ──────────
+  // 인간이 AI 포스트에 댓글을 달면 반드시 답글 (확률 체크 없음, 별도 제한)
+  if (!hasTime()) {
+    return { mode: "micro", hour, hourlyWeight, postsCreated, commentsCreated, repliesCreated, likesCreated, followsCreated, trendingComments, errors };
+  }
+
+  const userCommentsOnAiPosts = await prisma.comment.findMany({
+    where: {
+      createdAt: { gte: new Date(Date.now() - 48 * 60 * 60 * 1000) }, // 48시간 이내
+      parentId: null,
+      aiCharacterId: null, // 인간이 단 댓글
+      authorId: { not: null },
+      post: { aiCharacterId: { not: null } }, // AI 포스트에
+      replies: { none: { isAiGenerated: true } }, // AI 답글 아직 없음
+    },
+    include: {
+      post: {
+        select: {
+          content: true,
+          aiCharacterId: true,
+          aiCharacter: { select: { id: true, name: true, personality: true, aiProvider: true, apiKeyEncrypted: true, systemPrompt: true, expertise: true } },
+        },
+      },
+    },
+    orderBy: { createdAt: "asc" }, // 오래된 것부터 답글 (놓치지 않도록)
+    take: 10,
+  });
+
+  for (const comment of userCommentsOnAiPosts) {
+    if (!hasTime()) break;
+    const postAi = comment.post.aiCharacter;
+    if (!postAi) continue;
+
+    try {
+      const prompt = buildReplyPrompt(postAi, comment.post, comment);
+      const content = await generateText({
+        provider: postAi.aiProvider as "claude" | "gemini" | "openai" | "custom",
+        apiKey: postAi.apiKeyEncrypted ? decrypt(postAi.apiKeyEncrypted) : null,
+        prompt,
+        maxTokens: 120,
+      });
+
+      if (!content) continue;
+
+      await prisma.$transaction([
+        prisma.comment.create({
+          data: {
+            content,
+            postId: comment.postId,
+            parentId: comment.id,
+            aiCharacterId: postAi.id,
+            isAiGenerated: true,
+            createdAt: new Date(Date.now() + randomDelayMs()),
+          },
+        }),
+        prisma.post.update({
+          where: { id: comment.postId },
+          data: {
+            commentCount: { increment: 1 },
+            engagementScore: { increment: 1 },
+          },
+        }),
+      ]);
+
+      // 유저에게 답글 알림
+      if (comment.authorId) {
+        await createNotification({
+          type: "ai_comment",
+          content: `AI ${postAi.name}이(가) 회원님의 댓글에 답글을 남겼습니다.`,
+          userId: comment.authorId,
+          aiActorId: postAi.id,
+          postId: comment.postId,
+        });
+      }
+
+      repliesCreated++;
+    } catch (err) {
+      errors.push(`UserReplyMust(${postAi.name}): ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  // ─── Phase 2.5b: AI끼리 답글 + 일반 답글 ────────────
   if (!hasTime()) {
     return { mode: "micro", hour, hourlyWeight, postsCreated, commentsCreated, repliesCreated, likesCreated, followsCreated, trendingComments, errors };
   }
@@ -330,7 +411,7 @@ export async function runMicroScheduler(): Promise<MicroSchedulerResult> {
   });
 
   for (const char of activeChars) {
-    if (repliesCreated >= MICRO_MAX_REPLIES || !hasTime()) break;
+    if (repliesCreated >= MICRO_MAX_REPLIES + 3 || !hasTime()) break; // 인간 답글은 별도이므로 여유 +3
 
     // 자기 포스트에 달린 다른 AI 댓글에 답글 (60%)
     const aiCommentsOnMyPosts = recentComments.filter(
@@ -341,7 +422,7 @@ export async function runMicroScheduler(): Promise<MicroSchedulerResult> {
     );
 
     for (const comment of aiCommentsOnMyPosts) {
-      if (repliesCreated >= MICRO_MAX_REPLIES || !hasTime()) break;
+      if (repliesCreated >= MICRO_MAX_REPLIES + 3 || !hasTime()) break;
       if (Math.random() > 0.6) continue;
 
       try {
@@ -386,72 +467,13 @@ export async function runMicroScheduler(): Promise<MicroSchedulerResult> {
       }
     }
 
-    // 내 포스트에 달린 유저 댓글에 답글 (80% — 유저 참여에 적극 응답)
-    const userCommentsOnMyPosts = recentComments.filter(
-      (c) =>
-        c.post.aiCharacterId === char.id && // 내 포스트에
-        !c.aiCharacterId && // AI가 아닌 유저가 단 댓글
-        c.authorId // 유저 확인
-    );
-
-    for (const comment of userCommentsOnMyPosts) {
-      if (repliesCreated >= MICRO_MAX_REPLIES || !hasTime()) break;
-      if (Math.random() > 0.8) continue;
-
-      try {
-        const prompt = buildReplyPrompt(char, comment.post, comment);
-        const content = await generateText({
-          ...getAiConfig(char),
-          prompt,
-          maxTokens: 80,
-        });
-
-        if (!content) continue;
-
-        await prisma.$transaction([
-          prisma.comment.create({
-            data: {
-              content,
-              postId: comment.postId,
-              parentId: comment.id,
-              aiCharacterId: char.id,
-              isAiGenerated: true,
-              createdAt: new Date(Date.now() + randomDelayMs()),
-            },
-          }),
-          prisma.post.update({
-            where: { id: comment.postId },
-            data: {
-              commentCount: { increment: 1 },
-              engagementScore: { increment: 1 },
-            },
-          }),
-        ]);
-
-        // 유저에게 답글 알림
-        if (comment.authorId) {
-          await createNotification({
-            type: "ai_comment",
-            content: `AI ${char.name}이(가) 회원님의 댓글에 답글을 남겼습니다.`,
-            userId: comment.authorId,
-            aiActorId: char.id,
-            postId: comment.postId,
-          });
-        }
-
-        repliesCreated++;
-      } catch (err) {
-        errors.push(`UserReply(${char.name}): ${err instanceof Error ? err.message : String(err)}`);
-      }
-    }
-
     // 일반 답글 (50%)
     const eligibleComments = recentComments.filter(
       (c) => c.aiCharacterId !== char.id && c.post.aiCharacterId !== char.id
     );
 
     for (const comment of eligibleComments) {
-      if (repliesCreated >= MICRO_MAX_REPLIES || !hasTime()) break;
+      if (repliesCreated >= MICRO_MAX_REPLIES + 3 || !hasTime()) break;
       if (Math.random() > 0.5) continue;
 
       try {

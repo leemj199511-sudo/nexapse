@@ -200,12 +200,83 @@ export async function runAiPostScheduler(): Promise<{
     }
   }
 
-  // --- Phase 2.5: AI Replies to existing comments ---
+  // --- Phase 2.5a: 인간 댓글 필수 답글 (100%, 제한 없음) ---
+  const userCommentsOnAiPosts = await prisma.comment.findMany({
+    where: {
+      createdAt: { gte: new Date(Date.now() - 48 * 60 * 60 * 1000) }, // 48시간 이내
+      parentId: null,
+      aiCharacterId: null, // 인간이 단 댓글
+      authorId: { not: null },
+      post: { aiCharacterId: { not: null } }, // AI 포스트에
+      replies: { none: { isAiGenerated: true } }, // AI 답글 아직 없음
+    },
+    include: {
+      post: {
+        select: {
+          content: true,
+          aiCharacterId: true,
+          aiCharacter: true,
+        },
+      },
+    },
+    orderBy: { createdAt: "asc" },
+    take: 10,
+  });
+
+  for (const targetComment of userCommentsOnAiPosts) {
+    if (!hasTime()) break;
+    const postAi = targetComment.post.aiCharacter;
+    if (!postAi) continue;
+
+    try {
+      const prompt = buildReplyPrompt(postAi, targetComment.post, targetComment);
+      const content = await generateText({
+        provider: postAi.aiProvider as "claude" | "gemini" | "openai" | "custom",
+        apiKey: postAi.apiKeyEncrypted ? decrypt(postAi.apiKeyEncrypted) : null,
+        prompt,
+        maxTokens: 120,
+      });
+
+      if (!content) continue;
+
+      await prisma.$transaction([
+        prisma.comment.create({
+          data: {
+            content,
+            postId: targetComment.postId,
+            parentId: targetComment.id,
+            aiCharacterId: postAi.id,
+            isAiGenerated: true,
+          },
+        }),
+        prisma.post.update({
+          where: { id: targetComment.postId },
+          data: { commentCount: { increment: 1 } },
+        }),
+      ]);
+
+      if (targetComment.authorId) {
+        await createNotification({
+          type: "ai_comment",
+          content: `AI ${postAi.name}이(가) 회원님의 댓글에 답글을 남겼습니다.`,
+          userId: targetComment.authorId,
+          aiActorId: postAi.id,
+          postId: targetComment.postId,
+        });
+      }
+
+      repliesCreated++;
+    } catch (err) {
+      errors.push(`UserReplyMust(${postAi.name}): ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  // --- Phase 2.5b: 일반 답글 (30%) ---
   const recentComments = await prisma.comment.findMany({
     where: {
       createdAt: { gte: new Date(Date.now() - 12 * 60 * 60 * 1000) },
-      parentId: null, // top-level comments only
-      replies: { none: { isAiGenerated: true } }, // no AI reply yet
+      parentId: null,
+      replies: { none: { isAiGenerated: true } },
     },
     include: {
       post: { select: { content: true, aiCharacterId: true } },
@@ -214,75 +285,13 @@ export async function runAiPostScheduler(): Promise<{
     take: 30,
   });
 
-  // 우선: 내 포스트에 달린 유저 댓글에 답글 (포스트 주인 AI 우선 응답, 80%)
   for (const char of characters) {
-    if (repliesCreated >= MAX_REPLIES_PER_RUN || !hasTime()) break;
+    if (repliesCreated >= MAX_REPLIES_PER_RUN + 5 || !hasTime()) break;
 
-    const userCommentsOnMyPosts = recentComments.filter(
-      (c) =>
-        c.post.aiCharacterId === char.id && // 내 포스트에
-        !c.aiCharacterId && // 유저가 단 댓글
-        c.authorId
-    );
-
-    for (const targetComment of userCommentsOnMyPosts) {
-      if (repliesCreated >= MAX_REPLIES_PER_RUN || !hasTime()) break;
-      if (Math.random() > 0.8) continue;
-
-      try {
-        const prompt = buildReplyPrompt(char, targetComment.post, targetComment);
-        const content = await generateText({
-          provider: char.aiProvider as "claude" | "gemini" | "openai" | "custom",
-          apiKey: char.apiKeyEncrypted ? decrypt(char.apiKeyEncrypted) : null,
-          prompt,
-          maxTokens: 80,
-        });
-
-        if (!content) continue;
-
-        await prisma.$transaction([
-          prisma.comment.create({
-            data: {
-              content,
-              postId: targetComment.postId,
-              parentId: targetComment.id,
-              aiCharacterId: char.id,
-              isAiGenerated: true,
-            },
-          }),
-          prisma.post.update({
-            where: { id: targetComment.postId },
-            data: { commentCount: { increment: 1 } },
-          }),
-        ]);
-
-        // 유저에게 답글 알림
-        if (targetComment.authorId) {
-          await createNotification({
-            type: "ai_comment",
-            content: `AI ${char.name}이(가) 회원님의 댓글에 답글을 남겼습니다.`,
-            userId: targetComment.authorId,
-            aiActorId: char.id,
-            postId: targetComment.postId,
-          });
-        }
-
-        repliesCreated++;
-      } catch (err) {
-        errors.push(`UserReply error (${char.name}): ${err instanceof Error ? err.message : String(err)}`);
-      }
-    }
-  }
-
-  // 그 다음: 일반 답글 (30%)
-  for (const char of characters) {
-    if (repliesCreated >= MAX_REPLIES_PER_RUN || !hasTime()) break;
-
-    // 30% chance to reply
     if (Math.random() > 0.3) continue;
 
     const eligibleComments = recentComments.filter(
-      (c) => c.aiCharacterId !== char.id // Don't reply to own comments
+      (c) => c.aiCharacterId !== char.id
     );
     if (eligibleComments.length === 0) continue;
 
